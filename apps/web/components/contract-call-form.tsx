@@ -61,6 +61,11 @@ interface ContractCallFormProps {
   contractId: string;
 }
 
+type SimulationMetrics = {
+  cpuInsns: number;
+  memBytes: number;
+};
+
 export function ContractCallForm({ contractId }: ContractCallFormProps) {
   const genId = () => Math.random().toString(36).substring(2, 9);
   const { isConnected, address } = useWallet();
@@ -70,11 +75,69 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
   const [args, setArgs] = useState<ContractArg[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [simulationMetrics, setSimulationMetrics] =
+    useState<SimulationMetrics | null>(null);
   const { saveCall } = useSavedCallsStore();
   const [isSaveOpen, setIsSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const { getSpec, setSpec } = useAbiStore();
   const spec = getSpec(contractId);
+
+  const formatInt = (value: number) =>
+    new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+
+  const formatBytes = (bytes: number) => {
+    if (!Number.isFinite(bytes) || bytes < 0) return "N/A";
+    if (bytes < 1024) return `${formatInt(bytes)} B`;
+
+    const units = ["KB", "MB", "GB", "TB"];
+    let value = bytes / 1024;
+    let unitIndex = 0;
+
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+
+    return `${new Intl.NumberFormat("en-US", {
+      maximumFractionDigits: 2,
+    }).format(value)} ${units[unitIndex]}`;
+  };
+
+  const extractSimulationMetrics = (
+    sim: SorobanRpc.Api.SimulateTransactionSuccessResponse,
+  ): SimulationMetrics | null => {
+    const maybeCost = (sim as any).cost;
+    const costCpu = Number(
+      maybeCost?.cpuInsns ?? maybeCost?.cpuInstructions ?? maybeCost?.cpu_insns,
+    );
+    const costMem = Number(maybeCost?.memBytes ?? maybeCost?.mem_bytes);
+
+    if (Number.isFinite(costCpu) && Number.isFinite(costMem)) {
+      return {
+        cpuInsns: costCpu,
+        memBytes: costMem,
+      };
+    }
+
+    try {
+      const resources = sim.transactionData.build().resources();
+      const cpuInsns = Number(resources.instructions());
+      const memBytes =
+        Number(resources.diskReadBytes()) + Number(resources.writeBytes());
+
+      if (!Number.isFinite(cpuInsns) || !Number.isFinite(memBytes)) {
+        return null;
+      }
+
+      return {
+        cpuInsns,
+        memBytes,
+      };
+    } catch {
+      return null;
+    }
+  };
 
   useEffect(() => {
     if (
@@ -99,6 +162,7 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
 
   const handleFnChange = (name: string) => {
     setFnName(name);
+    setSimulationMetrics(null);
     if (name === "transfer") {
       setArgs([
         { id: genId(), name: "from", type: "address", value: "" },
@@ -113,20 +177,24 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
   };
 
   const addArg = () => {
+    setSimulationMetrics(null);
     setArgs([...args, { id: genId(), type: "symbol", value: "" }]);
   };
 
   const removeArg = (id: string) => {
+    setSimulationMetrics(null);
     setArgs(args.filter((a) => a.id !== id));
   };
 
   const updateArg = (id: string, field: keyof ContractArg, val: string) => {
+    setSimulationMetrics(null);
     setArgs(args.map((a) => (a.id === id ? { ...a, [field]: val } : a)));
   };
 
   const handleSimulate = async () => {
     setIsLoading(true);
     setResult(null);
+    setSimulationMetrics(null);
     try {
       const network = getActiveNetworkConfig();
       const server = new SorobanRpc.Server(network.rpcUrl);
@@ -158,14 +226,17 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
       const sim = await server.simulateTransaction(tx);
 
       if (SorobanRpc.Api.isSimulationSuccess(sim)) {
+        setSimulationMetrics(extractSimulationMetrics(sim));
         setResult(`Simulation Success! Result XDR available.`);
         toast.success(`Simulation Success!`);
       } else {
+        setSimulationMetrics(null);
         setResult(`Simulation Failed: ${sim.error || "Unknown error"}`);
         toast.error(`Simulation Failed: ${sim.error || "Unknown error"}`);
       }
     } catch (e: any) {
       console.error(e);
+      setSimulationMetrics(null);
       setResult(`Error: ${e.message}`);
       toast.error(`Simulation Error: ${e.message}`);
     } finally {
@@ -250,6 +321,7 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
 
   const handleLoad = (call: SavedCall) => {
     setFnName(call.fnName);
+    setSimulationMetrics(null);
 
     const newArgs = call.args.map((a) => ({ ...a, id: crypto.randomUUID() }));
     setArgs(newArgs);
@@ -366,6 +438,29 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
         {result && (
           <div className="break-all rounded-md border-l-4 border-blue-500 bg-muted p-4 font-mono text-xs">
             {result}
+          </div>
+        )}
+
+        {simulationMetrics && (
+          <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+              Simulation Cost Profile
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-md border bg-background/70 p-3">
+                <p className="text-muted-foreground text-xs">CPU Instructions</p>
+                <p className="font-mono text-sm font-semibold">
+                  {formatInt(simulationMetrics.cpuInsns)}
+                </p>
+              </div>
+              <div className="rounded-md border bg-background/70 p-3">
+                <p className="text-muted-foreground text-xs">Memory Bytes</p>
+                <p className="font-mono text-sm font-semibold">
+                  {formatInt(simulationMetrics.memBytes)} B (
+                  {formatBytes(simulationMetrics.memBytes)})
+                </p>
+              </div>
+            </div>
           </div>
         )}
 

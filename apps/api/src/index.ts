@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import { prisma } from "./lib/prisma.js";
 import { rpcRouter } from "./routes/rpc.js";
+import { verifyRouter } from "./routes/verify.js";
 import { workspacesRouter } from "./routes/workspaces.js";
 
 const app = express();
@@ -55,6 +56,7 @@ app.get("/api/workspaces", async (_req, res) => {
 
 app.use("/api/workspaces", workspacesRouter);
 app.use("/api/rpc", rpcRouter);
+app.use("/api/verify", verifyRouter);
 
 const server = app.listen(port, () => {
   console.log(`API server listening on http://localhost:${port}`);
