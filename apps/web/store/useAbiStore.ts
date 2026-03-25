@@ -1,16 +1,19 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { xdr } from "@stellar/stellar-sdk";
+import {
+  type NormalizedContractSpec,
+  createNormalizedContractSpecFromFunctionNames,
+} from "@devconsole/soroban-utils";
 
-interface ContractSpec {
-  functions: string[];
-  rawSpec: string;
-}
+type LegacyContractSpec = {
+  functions?: string[];
+  rawSpec?: string;
+};
 
 interface AbiState {
-  specs: Record<string, ContractSpec>;
-  setSpec: (contractId: string, spec: ContractSpec) => void;
-  getSpec: (contractId: string) => ContractSpec | undefined;
+  specs: Record<string, NormalizedContractSpec>;
+  setSpec: (contractId: string, spec: NormalizedContractSpec) => void;
+  getSpec: (contractId: string) => NormalizedContractSpec | undefined;
 }
 
 export const useAbiStore = create<AbiState>()(
@@ -23,6 +26,48 @@ export const useAbiStore = create<AbiState>()(
         })),
       getSpec: (contractId) => get().specs[contractId],
     }),
-    { name: "soroban-abi-storage" },
+    {
+      name: "soroban-abi-storage",
+      version: 2,
+      migrate: (persistedState) => {
+        const state = persistedState as
+          | {
+              specs?: Record<string, LegacyContractSpec | NormalizedContractSpec>;
+            }
+          | undefined;
+
+        const migratedSpecs = Object.fromEntries(
+          Object.entries(state?.specs ?? {}).map(([contractId, spec]) => {
+            if (spec && Array.isArray((spec as NormalizedContractSpec).functions)) {
+              const normalized = spec as NormalizedContractSpec;
+              if (
+                normalized.functions.every(
+                  (entry) => entry && typeof entry === "object" && "name" in entry,
+                )
+              ) {
+                return [contractId, normalized];
+              }
+            }
+
+            const legacy = spec as LegacyContractSpec;
+            return [
+              contractId,
+              {
+                ...createNormalizedContractSpecFromFunctionNames(
+                  legacy?.functions ?? [],
+                  "workspace",
+                  legacy?.rawSpec ?? "",
+                ),
+                contractId,
+              },
+            ];
+          }),
+        );
+
+        return {
+          specs: migratedSpecs,
+        };
+      },
+    },
   ),
 );

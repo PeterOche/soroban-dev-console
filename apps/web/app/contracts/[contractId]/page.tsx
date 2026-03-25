@@ -31,7 +31,11 @@ import { Input } from "@devconsole/ui";
 import { Label } from "@devconsole/ui";
 import { toast } from "sonner";
 import { useAbiStore } from "@/store/useAbiStore";
-import { parseWasmMetadata } from "@devconsole/soroban-utils";
+import {
+  createNormalizedContractSpecFromFunctionNames,
+  normalizeAbiJson,
+  parseWasmMetadata,
+} from "@devconsole/soroban-utils";
 
 interface ContractData {
   exists: boolean;
@@ -65,18 +69,14 @@ export default function ContractDetailPage() {
       if (name.endsWith(".json")) {
         const text = await file.text();
         const json = JSON.parse(text);
+        const spec = normalizeAbiJson(json);
 
-        const functions = extractFunctionNamesFromAbiJson(json);
-
-        if (!functions.length) {
+        if (!spec.functions.length) {
           toast.error("No functions discovered in ABI JSON.");
           return;
         }
 
-        setSpec(contractId, {
-          rawSpec: JSON.stringify(json),
-          functions,
-        });
+        setSpec(contractId, { ...spec, contractId });
 
         toast.success("Local ABI loaded. Interaction UI is ready.");
       } else if (name.endsWith(".wasm")) {
@@ -88,10 +88,17 @@ export default function ContractDetailPage() {
           return;
         }
 
-        setSpec(contractId, {
-          rawSpec: "local-wasm",
-          functions,
-        });
+        setSpec(
+          contractId,
+          {
+            ...createNormalizedContractSpecFromFunctionNames(
+              functions,
+              "wasm",
+              "local-wasm",
+            ),
+            contractId,
+          },
+        );
 
         toast.success("Local WASM interface loaded. Interaction UI is ready.");
       } else {
@@ -105,47 +112,6 @@ export default function ContractDetailPage() {
       // Reset input so the same file can be chosen again if needed
       e.target.value = "";
     }
-  };
-
-  const extractFunctionNamesFromAbiJson = (abi: any): string[] => {
-    const names = new Set<string>();
-
-    if (!abi) return [];
-
-    // Common pattern: { functions: string[] }
-    if (Array.isArray(abi.functions)) {
-      abi.functions.forEach((f: any) => {
-        if (typeof f === "string") names.add(f);
-        if (f && typeof f.name === "string") names.add(f.name);
-      });
-    }
-
-    // CLI-style: top-level array of spec entries
-    const entries = Array.isArray(abi)
-      ? abi
-      : Array.isArray(abi.spec)
-        ? abi.spec
-        : [];
-
-    for (const entry of entries) {
-      if (!entry) continue;
-      if (
-        typeof entry.name === "string" &&
-        typeof entry.type === "string" &&
-        entry.type.toLowerCase().includes("func")
-      ) {
-        names.add(entry.name);
-      }
-      if (
-        typeof entry.name === "string" &&
-        typeof entry.kind === "string" &&
-        entry.kind.toLowerCase().includes("func")
-      ) {
-        names.add(entry.name);
-      }
-    }
-
-    return Array.from(names);
   };
 
   useEffect(() => {

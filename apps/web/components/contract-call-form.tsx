@@ -25,6 +25,7 @@ import {
   ArgType,
   ContractArg,
   convertToScVal,
+  createNormalizedContractSpecFromFunctionNames,
 } from "@devconsole/soroban-utils";
 import { signTransaction } from "@stellar/freighter-api";
 import { SavedCallsSheet } from "./saved-calls-sheet";
@@ -185,16 +186,11 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
       !spec
     ) {
       setSpec(contractId, {
-        rawSpec: "",
-        functions: [
-          "balance",
-          "decimals",
-          "name",
-          "symbol",
-          "transfer",
-          "mint",
-          "burn",
-        ],
+        ...createNormalizedContractSpecFromFunctionNames(
+          ["balance", "decimals", "name", "symbol", "transfer", "mint", "burn"],
+          "workspace",
+        ),
+        contractId,
       });
     }
   }, [contractId, spec, setSpec]);
@@ -393,8 +389,8 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
               </SelectTrigger>
               <SelectContent>
                 {spec.functions.map((f) => (
-                  <SelectItem key={f} value={f}>
-                    {f}
+                  <SelectItem key={f.name} value={f.name}>
+                    {f.name}
                   </SelectItem>
                 ))}
               </SelectContent>

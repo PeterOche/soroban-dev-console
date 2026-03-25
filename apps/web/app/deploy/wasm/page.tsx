@@ -42,7 +42,10 @@ import {
 } from "@devconsole/ui";
 import { toast } from "sonner";
 import { Badge } from "@devconsole/ui";
-import { parseWasmMetadata } from "@devconsole/soroban-utils";
+import {
+  createNormalizedContractSpecFromFunctionNames,
+  parseWasmMetadata,
+} from "@devconsole/soroban-utils";
 
 export default function WasmRegistryPage() {
   const { isConnected, address } = useWallet();
@@ -65,7 +68,12 @@ export default function WasmRegistryPage() {
       // Local-First Inspection logic
       const arrayBuffer = await selected.arrayBuffer();
       const functions = await parseWasmMetadata(Buffer.from(arrayBuffer));
-      setPreviewFunctions(functions);
+      const spec = createNormalizedContractSpecFromFunctionNames(
+        functions,
+        "wasm",
+        selected.name,
+      );
+      setPreviewFunctions(spec.functions.map((entry) => entry.name));
 
       if (!wasmName) setWasmName(selected.name.replace(".wasm", ""));
     }
@@ -113,6 +121,7 @@ export default function WasmRegistryPage() {
         name: wasmName || file.name,
         network: network.id,
         installedAt: Date.now(),
+        functions: previewFunctions,
       });
 
       toast.success("WASM Uploaded & Saved!");
