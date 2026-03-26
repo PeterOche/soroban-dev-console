@@ -12,7 +12,11 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { MultiOpCart, MultiOpCartItem } from "@/components/multi-op-cart";
-import { convertToScVal } from "@devconsole/soroban-utils";
+import {
+  convertToScVal,
+  normalizeSimulationResult,
+  type NormalizedSimulationResult,
+} from "@devconsole/soroban-utils";
 import { useNetworkStore } from "@/store/useNetworkStore";
 import { SavedCall, useSavedCallsStore } from "@/store/useSavedCallsStore";
 import { useWallet } from "@/store/useWallet";
@@ -26,14 +30,9 @@ import {
   CardTitle,
 } from "@devconsole/ui";
 
-type StateChange = NonNullable<
-  SorobanRpc.Api.SimulateTransactionSuccessResponse["stateChanges"]
->[number];
-
 type SimulationSummary = {
   operationCount: number;
-  minResourceFee: string;
-  stateChanges: StateChange[];
+  details: NormalizedSimulationResult;
 };
 
 function toCartItem(call: SavedCall): MultiOpCartItem {
@@ -49,7 +48,7 @@ function formatStroops(value: string) {
   return new Intl.NumberFormat("en-US").format(parsed);
 }
 
-function shortKeyBase64(change: StateChange) {
+function shortKeyBase64(change: NormalizedSimulationResult["stateChanges"][number]) {
   try {
     return change.key.toXDR("base64").slice(0, 24);
   } catch {
@@ -152,14 +151,14 @@ export default function TxBuilderPage() {
       const tx = txBuilder.setTimeout(TimeoutInfinite).build();
 
       const sim = await server.simulateTransaction(tx);
-      if (!SorobanRpc.Api.isSimulationSuccess(sim)) {
-        throw new Error(sim.error || "Unknown simulation error");
+      const normalized = normalizeSimulationResult(sim);
+      if (!normalized.ok) {
+        throw new Error(normalized.error || "Unknown simulation error");
       }
 
       setSimulation({
         operationCount: operations.length,
-        minResourceFee: sim.minResourceFee,
-        stateChanges: sim.stateChanges ?? [],
+        details: normalized,
       });
 
       setResult("Simulation success for batched transaction.");
@@ -207,14 +206,16 @@ export default function TxBuilderPage() {
 
       const tx = txBuilder.setTimeout(TimeoutInfinite).build();
       const sim = await server.simulateTransaction(tx);
-      if (!SorobanRpc.Api.isSimulationSuccess(sim)) {
-        throw new Error(`Pre-flight simulation failed: ${sim.error}`);
+      const normalized = normalizeSimulationResult(sim);
+      if (!normalized.ok) {
+        throw new Error(
+          `Pre-flight simulation failed: ${normalized.error || "Unknown simulation error"}`,
+        );
       }
 
       setSimulation({
         operationCount: operations.length,
-        minResourceFee: sim.minResourceFee,
-        stateChanges: sim.stateChanges ?? [],
+        details: normalized,
       });
 
       const preparedTx = SorobanRpc.assembleTransaction(tx, sim).build();
@@ -277,21 +278,28 @@ export default function TxBuilderPage() {
             <div className="rounded-md border border-blue-500/40 bg-blue-500/10 p-4">
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <Badge>{simulation.operationCount} operations</Badge>
+                {simulation.details.minResourceFee && (
+                  <Badge variant="secondary">
+                    Min Fee: {formatStroops(simulation.details.minResourceFee)} stroops
+                  </Badge>
+                )}
                 <Badge variant="secondary">
-                  Min Fee: {formatStroops(simulation.minResourceFee)} stroops
+                  {simulation.details.stateChangesCount} combined state changes
                 </Badge>
-                <Badge variant="secondary">
-                  {simulation.stateChanges.length} combined state changes
-                </Badge>
+                {simulation.details.cpuInsns !== undefined && (
+                  <Badge variant="secondary">
+                    CPU: {formatStroops(String(simulation.details.cpuInsns))}
+                  </Badge>
+                )}
               </div>
 
-              {simulation.stateChanges.length === 0 ? (
+              {simulation.details.stateChanges.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   No state changes were returned by simulation.
                 </p>
               ) : (
                 <div className="grid gap-2">
-                  {simulation.stateChanges.map((change, index) => (
+                  {simulation.details.stateChanges.map((change, index) => (
                     <div
                       key={`${change.type}-${index}`}
                       className="rounded border bg-background/60 p-2 font-mono text-xs"

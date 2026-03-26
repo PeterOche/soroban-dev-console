@@ -12,17 +12,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@devconsole/ui";
+import { useNetworkStore } from "@/store/useNetworkStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 
 export function WorkspaceSwitcher() {
   const { workspaces, activeWorkspaceId, setActiveWorkspace, createWorkspace } =
     useWorkspaceStore();
+  const { currentNetwork } = useNetworkStore();
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState("");
 
   const handleCreate = () => {
     if (newName.trim()) {
-      createWorkspace(newName);
+      createWorkspace(newName, currentNetwork);
       setNewName("");
       setIsCreating(false);
     }

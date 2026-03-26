@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useWallet } from "@/store/useWallet";
+import { walletProviderList, type WalletProviderId } from "@/lib/wallet/provider";
 import { Button } from "@devconsole/ui";
 import { Skeleton } from "@devconsole/ui";
 import {
@@ -21,18 +22,9 @@ import {
 } from "@devconsole/ui";
 import { Wallet, LogOut, Copy, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
-import * as freighter from "@stellar/freighter-api";
-import albedo from "@albedo-link/intent";
 
 export function ConnectWalletButton() {
-  const {
-    isConnected,
-    address,
-    walletType,
-    connectFreighter,
-    connectAlbedo,
-    disconnect,
-  } = useWallet();
+  const { isConnected, address, walletType, connect, disconnect } = useWallet();
 
   const [isOpen, setIsOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
@@ -45,10 +37,9 @@ export function ConnectWalletButton() {
     ? `${address.slice(0, 4)}...${address.slice(-4)}`
     : "";
 
-  const handleConnect = async (type: "freighter" | "albedo") => {
+  const handleConnect = async (provider: WalletProviderId) => {
     try {
-      if (type === "freighter") await connectFreighter();
-      if (type === "albedo") await connectAlbedo();
+      await connect(provider);
 
       setIsOpen(false);
       toast.success("Wallet connected!");
@@ -120,33 +111,22 @@ export function ConnectWalletButton() {
           <DialogTitle>Connect your wallet</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
-          <Button
-            variant="outline"
-            className="h-16 justify-start gap-4 border-2 px-6 hover:border-primary/50"
-            onClick={() => handleConnect("freighter")}
-          >
-            <Wallet className="h-6 w-6 text-purple-600" />
-            <div className="flex flex-col items-start">
-              <span className="font-semibold">Freighter</span>
-              <span className="text-xs text-muted-foreground">
-                Stellar's primary extension wallet
-              </span>
-            </div>
-          </Button>
-
-          <Button
-            variant="outline"
-            className="h-16 justify-start gap-4 border-2 px-6 hover:border-primary/50"
-            onClick={() => handleConnect("albedo")}
-          >
-            <Wallet className="h-6 w-6 text-orange-600" />
-            <div className="flex flex-col items-start">
-              <span className="font-semibold">Albedo</span>
-              <span className="text-xs text-muted-foreground">
-                Web-based wallet, no extension required
-              </span>
-            </div>
-          </Button>
+          {walletProviderList.map((provider) => (
+            <Button
+              key={provider.id}
+              variant="outline"
+              className="h-16 justify-start gap-4 border-2 px-6 hover:border-primary/50"
+              onClick={() => handleConnect(provider.id)}
+            >
+              <Wallet className={`h-6 w-6 ${provider.accentClassName}`} />
+              <div className="flex flex-col items-start">
+                <span className="font-semibold">{provider.label}</span>
+                <span className="text-xs text-muted-foreground">
+                  {provider.description}
+                </span>
+              </div>
+            </Button>
+          ))}
         </div>
       </DialogContent>
     </Dialog>

@@ -14,7 +14,7 @@ export interface SavedCall {
 
 interface SavedCallsState {
   savedCalls: SavedCall[];
-  saveCall: (call: Omit<SavedCall, "id" | "createdAt">) => void;
+  saveCall: (call: Omit<SavedCall, "id" | "createdAt">) => SavedCall;
   removeCall: (id: string) => void;
   getCallsForContract: (contractId: string) => SavedCall[];
 }
@@ -24,13 +24,19 @@ export const useSavedCallsStore = create<SavedCallsState>()(
     (set, get) => ({
       savedCalls: [],
 
-      saveCall: (call) =>
+      saveCall: (call) => {
+        const savedCall = {
+          ...call,
+          id: crypto.randomUUID(),
+          createdAt: Date.now(),
+        };
+
         set((state) => ({
-          savedCalls: [
-            { ...call, id: crypto.randomUUID(), createdAt: Date.now() },
-            ...state.savedCalls,
-          ],
-        })),
+          savedCalls: [savedCall, ...state.savedCalls],
+        }));
+
+        return savedCall;
+      },
 
       removeCall: (id) =>
         set((state) => ({

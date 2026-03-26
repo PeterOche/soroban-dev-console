@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { xdr, Address, StrKey } from "@stellar/stellar-sdk";
 import { useNetworkStore } from "@/store/useNetworkStore";
+import {
+  buildStorageQuery,
+  type StorageKeyType,
+} from "@/lib/storage-query";
 import {
   Copy,
   ExternalLink,
@@ -34,66 +37,33 @@ export default function LedgerKeyCalculatorPage() {
   const { currentNetwork } = useNetworkStore();
 
   const [contractId, setContractId] = useState("");
-  const [keyType, setKeyType] = useState<
-    "symbol" | "string" | "address" | "i32"
-  >("symbol");
+  const [keyType, setKeyType] = useState<StorageKeyType>("symbol");
   const [keyValue, setKeyValue] = useState("");
 
   // Outputs
   const [xdrBase64, setXdrBase64] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Auto-calculate when inputs change
-  useEffect(() => {
-    calculateKey();
-  }, [contractId, keyType, keyValue]);
-
-  const calculateKey = () => {
+  function calculateKey() {
     setError(null);
     setXdrBase64(null);
 
     if (!contractId || !keyValue) return;
 
     try {
-      if (!StrKey.isValidContract(contractId)) {
-        throw new Error("Invalid Contract ID format");
-      }
-
-      let scVal: xdr.ScVal;
-      switch (keyType) {
-        case "symbol":
-          scVal = xdr.ScVal.scvSymbol(keyValue);
-          break;
-        case "string":
-          scVal = xdr.ScVal.scvString(keyValue);
-          break;
-        case "i32":
-          if (isNaN(Number(keyValue)))
-            throw new Error("Value must be a number");
-          scVal = xdr.ScVal.scvI32(Number(keyValue));
-          break;
-        case "address":
-          scVal = new Address(keyValue).toScVal();
-          break;
-        default:
-          throw new Error("Unsupported key type");
-      }
-
-      const ledgerKey = xdr.LedgerKey.contractData(
-        new xdr.LedgerKeyContractData({
-          contract: new Address(contractId).toScAddress(),
-          key: scVal,
-          durability: xdr.ContractDataDurability.persistent(),
-        }),
-      );
-
-      setXdrBase64(ledgerKey.toXDR("base64"));
+      const query = buildStorageQuery({ contractId, keyType, keyValue });
+      setXdrBase64(query.ledgerKeyXdr);
     } catch (e: any) {
       if (contractId && keyValue) {
         setError(e.message);
       }
     }
-  };
+  }
+
+  // Auto-calculate when inputs change
+  useEffect(() => {
+    calculateKey();
+  }, [contractId, keyType, keyValue]);
 
   const copyToClipboard = () => {
     if (xdrBase64) {
