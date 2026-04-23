@@ -37,6 +37,14 @@ export class CreateWorkspaceDto {
   @IsString()
   @IsIn(NETWORK_IDS)
   selectedNetwork?: string;
+
+  @IsOptional()
+  @IsArray()
+  contracts?: any[];
+
+  @IsOptional()
+  @IsArray()
+  interactions?: any[];
 }
 
 export class UpdateWorkspaceDto {

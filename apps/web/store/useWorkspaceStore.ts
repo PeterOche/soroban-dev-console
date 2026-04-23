@@ -169,7 +169,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         try {
           const remote = await workspacesApi.create(payload);
           set({ cloudId: remote.id, syncState: "idle" });
-          return remote.share_id;
+          return remote.id;
         } catch {
           set({ syncState: "error" });
           return null;

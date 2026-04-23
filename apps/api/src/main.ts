@@ -4,6 +4,8 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module.js";
 import { validateEnv } from "./lib/validate-env.js";
+import { ApiErrorFilter } from "./lib/api-error.filter.js";
+import { ApiResponseInterceptor } from "./lib/api-response.interceptor.js";
 
 async function bootstrap() {
   validateEnv();
@@ -20,6 +22,8 @@ async function bootstrap() {
     credentials: true
   });
   app.setGlobalPrefix("api");
+  app.useGlobalFilters(new ApiErrorFilter());
+  app.useGlobalInterceptors(new ApiResponseInterceptor());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

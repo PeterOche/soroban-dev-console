@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common";
-import { PrismaService } from "../../lib/prisma.service.js";
+import { SharesRepository } from "./shares.repository.js";
+import { WorkspacesRepository } from "../workspaces/workspaces.repository.js";
+import { MapDbErrors } from "../../lib/db-error.mapper.js";
 import { randomBytes } from "crypto";
 
 import { IsString, IsOptional, IsObject } from "class-validator";
@@ -23,17 +25,21 @@ export class CreateShareDto {
 
 @Injectable()
 export class SharesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly repository: SharesRepository,
+    private readonly workspacesRepository: WorkspacesRepository,
+  ) {}
 
+  @MapDbErrors()
   async create(dto: CreateShareDto) {
-    const workspace = await this.prisma.workspace.findUnique({
+    const workspace = await this.workspacesRepository.findUnique({
       where: { id: dto.workspaceId },
     });
     if (!workspace) throw new NotFoundException("Workspace not found");
 
     const token = randomBytes(24).toString("base64url");
 
-    return this.prisma.shareLink.create({
+    return this.repository.create({
       data: {
         workspaceId: dto.workspaceId,
         token,
@@ -44,8 +50,9 @@ export class SharesService {
     });
   }
 
+  @MapDbErrors()
   async resolve(token: string) {
-    const share = await this.prisma.shareLink.findUnique({ where: { token } });
+    const share = await this.repository.findUnique({ where: { token } });
     if (!share) throw new NotFoundException("Share link not found");
     if (share.revokedAt) throw new ForbiddenException("Share link has been revoked");
     if (share.expiresAt && share.expiresAt < new Date()) {
@@ -54,17 +61,19 @@ export class SharesService {
     return share;
   }
 
+  @MapDbErrors()
   async revoke(token: string) {
-    const share = await this.prisma.shareLink.findUnique({ where: { token } });
+    const share = await this.repository.findUnique({ where: { token } });
     if (!share) throw new NotFoundException("Share link not found");
-    return this.prisma.shareLink.update({
+    return this.repository.update({
       where: { token },
       data: { revokedAt: new Date() },
     });
   }
 
+  @MapDbErrors()
   async listForWorkspace(workspaceId: string) {
-    return this.prisma.shareLink.findMany({
+    return this.repository.findMany({
       where: { workspaceId },
       orderBy: { createdAt: "desc" },
       select: {

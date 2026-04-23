@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { sharesApi, type ApiShareLink } from "@/lib/api/workspaces";
+import { sharesApi } from "@/lib/api/workspaces";
+import { ShareDetail } from "@devconsole/api-contracts";
 import { deserializeWorkspace, type SerializedWorkspace } from "@/lib/workspace-serializer";
 import {
   Card,
@@ -17,7 +18,7 @@ import { AlertTriangle, Eye, FileCode, Loader2 } from "lucide-react";
 type PageState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; link: ApiShareLink; payload: SerializedWorkspace };
+  | { status: "ready"; link: ShareDetail; payload: SerializedWorkspace };
 
 export default function SharedWorkspacePage() {
   const { token } = useParams<{ token: string }>();

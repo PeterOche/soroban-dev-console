@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@albedo-link/intent": "^0.13.0",
+    "@devconsole/api-contracts": "*",
     "@devconsole/soroban-utils": "*",
     "@devconsole/ui": "*",
     "@radix-ui/react-collapsible": "^1.1.12",

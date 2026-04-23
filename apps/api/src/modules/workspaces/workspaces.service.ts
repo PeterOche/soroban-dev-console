@@ -4,7 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { PrismaService } from "../../lib/prisma.service.js";
+import { WorkspacesRepository } from "./workspaces.repository.js";
+import { MapDbErrors } from "../../lib/db-error.mapper.js";
 import type {
   CreateWorkspaceDto,
   ImportWorkspaceDto,
@@ -13,10 +14,11 @@ import type {
 
 @Injectable()
 export class WorkspacesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly repository: WorkspacesRepository) {}
 
+  @MapDbErrors()
   list(ownerKey: string) {
-    return this.prisma.workspace.findMany({
+    return this.repository.findMany({
       where: { ownerKey },
       orderBy: { updatedAt: "desc" },
       select: {
@@ -30,8 +32,9 @@ export class WorkspacesService {
     });
   }
 
+  @MapDbErrors()
   async get(id: string, ownerKey: string) {
-    const workspace = await this.prisma.workspace.findFirst({
+    const workspace = await this.repository.findFirst({
       where: { id, ownerKey },
       include: {
         savedContracts: true,
@@ -57,21 +60,41 @@ export class WorkspacesService {
     return workspace;
   }
 
+  @MapDbErrors()
   create(ownerKey: string, dto: CreateWorkspaceDto) {
-    return this.prisma.workspace.create({
+    const network = dto.selectedNetwork ?? "testnet";
+    return this.repository.create({
       data: {
         ownerKey,
         name: dto.name.trim(),
         description: dto.description?.trim() || null,
-        selectedNetwork: dto.selectedNetwork ?? "testnet",
+        selectedNetwork: network,
+        savedContracts: dto.contracts
+          ? {
+              create: dto.contracts.map((c) => ({
+                contractId: c.contractId,
+                network: c.network || network,
+              })),
+            }
+          : undefined,
+        savedInteractions: dto.interactions
+          ? {
+              create: dto.interactions.map((i) => ({
+                functionName: i.functionName,
+                argumentsJson: i.argumentsJson || {},
+                network: network,
+              })),
+            }
+          : undefined,
       },
     });
   }
 
+  @MapDbErrors()
   async update(id: string, ownerKey: string, dto: UpdateWorkspaceDto) {
     await this.get(id, ownerKey);
 
-    return this.prisma.workspace.update({
+    return this.repository.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
@@ -85,11 +108,13 @@ export class WorkspacesService {
     });
   }
 
+  @MapDbErrors()
   async remove(id: string, ownerKey: string) {
     await this.get(id, ownerKey);
-    await this.prisma.workspace.delete({ where: { id } });
+    await this.repository.delete({ where: { id } });
   }
 
+  @MapDbErrors()
   async import(ownerKey: string, dto: ImportWorkspaceDto) {
     if (dto.version !== 2) {
       throw new BadRequestException(
@@ -97,7 +122,7 @@ export class WorkspacesService {
       );
     }
 
-    const existing = await this.prisma.workspace.findUnique({
+    const existing = await this.repository.findUnique({
       where: { id: dto.id },
     });
     if (existing) {
@@ -106,7 +131,7 @@ export class WorkspacesService {
       );
     }
 
-    return this.prisma.workspace.create({
+    return this.repository.create({
       data: {
         id: dto.id,
         ownerKey,
@@ -132,8 +157,9 @@ export class WorkspacesService {
     });
   }
 
+  @MapDbErrors()
   async export(id: string, ownerKey: string) {
-    const workspace = await this.prisma.workspace.findFirst({
+    const workspace = await this.repository.findFirst({
       where: { id, ownerKey },
       include: {
         savedContracts: true,

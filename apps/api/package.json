@@ -19,6 +19,7 @@
     "db:bootstrap": "npm run db:reset -- --skip-generate --skip-seed && npm run db:seed"
   },
   "dependencies": {
+    "@devconsole/api-contracts": "*",
     "@nestjs/common": "^11.1.17",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.1.17",

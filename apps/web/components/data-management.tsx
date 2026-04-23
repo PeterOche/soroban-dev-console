@@ -198,11 +198,11 @@ export function DataManagement() {
       }
 
       const snapshot = serializeWorkspace(workspace, contracts, savedCalls);
-      const link = await sharesApi.create(
-        workspaceCloudId,
-        snapshot,
-        workspace.name,
-      );
+      const link = await sharesApi.create({
+        workspaceId: workspaceCloudId,
+        snapshotJson: snapshot,
+        label: workspace.name,
+      });
 
       const url = `${window.location.origin}/share/${link.token}`;
       setShareUrl(url);
