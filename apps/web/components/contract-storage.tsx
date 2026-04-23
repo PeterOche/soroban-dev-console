@@ -32,8 +32,10 @@ import {
   CardTitle,
   CardDescription,
 } from "@devconsole/ui";
-import { Plus, Trash2, RefreshCw, Database } from "lucide-react";
+import { Plus, Trash2, RefreshCw, Database, Camera, GitCompare } from "lucide-react";
 import { toast } from "sonner";
+import { StateDiffViewer } from "./state-diff-viewer";
+import { StorageSnapshot, takeSnapshot, diffSnapshots } from "@/lib/diff-utils";
 
 interface ContractStorageProps {
   contractId: string;
@@ -60,6 +62,8 @@ export function ContractStorage({ contractId }: ContractStorageProps) {
   // The list of keys we are watching
   const [entries, setEntries] = useState<StorageEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [snapshots, setSnapshots] = useState<StorageSnapshot[]>([]);
+  const [snapshotDiffs, setSnapshotDiffs] = useState<ReturnType<typeof diffSnapshots>>([]);
 
   const fetchData = async () => {
     if (entries.length === 0) return;
@@ -138,6 +142,23 @@ export function ContractStorage({ contractId }: ContractStorageProps) {
 
   const handleRemove = (id: string) => {
     setEntries(entries.filter((e) => e.id !== id));
+  };
+
+  const handleTakeSnapshot = () => {
+    const current: Record<string, string> = {};
+    entries.filter((e) => e.found && e.decodedValue).forEach((e) => {
+      current[e.keyValue] = e.decodedValue!;
+    });
+    const label = `Snapshot ${snapshots.length + 1}`;
+    const snap = takeSnapshot(label, current);
+    const next = [...snapshots.slice(-1), snap];
+    setSnapshots(next);
+    if (next.length === 2) {
+      setSnapshotDiffs(diffSnapshots(next[0], next[1]));
+    } else {
+      setSnapshotDiffs([]);
+    }
+    toast.success(`${label} taken`);
   };
 
   return (
@@ -261,6 +282,39 @@ export function ContractStorage({ contractId }: ContractStorageProps) {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Snapshot comparison panel */}
+      <div className="mt-4 flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={handleTakeSnapshot}>
+          <Camera className="mr-1 h-3 w-3" /> Take Snapshot
+        </Button>
+        {snapshots.length > 0 && (
+          <span className="text-xs text-muted-foreground">
+            {snapshots.length} snapshot{snapshots.length > 1 ? "s" : ""} taken
+          </span>
+        )}
+        {snapshots.length >= 2 && (
+          <Button variant="ghost" size="sm" className="text-xs" onClick={() => { setSnapshots([]); setSnapshotDiffs([]); }}>
+            Clear
+          </Button>
+        )}
+      </div>
+
+      {snapshotDiffs.length > 0 && (
+        <Card className="mt-2">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <GitCompare className="h-4 w-4" /> Storage Diff
+              <span className="text-xs font-normal text-muted-foreground">
+                {snapshots[0].label} → {snapshots[1].label}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <StateDiffViewer diffs={snapshotDiffs} />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

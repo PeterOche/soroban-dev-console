@@ -21,6 +21,8 @@ import { useWallet } from "@/store/useWallet";
 import { useNetworkStore } from "@/store/useNetworkStore";
 import { useSavedCallsStore, SavedCall } from "@/store/useSavedCallsStore";
 import {
+  SimulationVariant,
+  createVariant,
   ArgType,
   ContractArg,
   convertToScVal,
@@ -146,6 +148,7 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
   const { activeWorkspaceId, linkSavedCall } = useWorkspaceStore();
   const [isSaveOpen, setIsSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
+  const [pinnedVariants, setPinnedVariants] = useState<SimulationVariant[]>([]);
   const { getSpec, setSpec } = useAbiStore();
   const spec = getSpec(contractId);
   const selectedFunction = spec?.functions.find((entry) => entry.name === fnName);
@@ -346,6 +349,14 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
     setIsSaveOpen(false);
     setSaveName("");
     toast.success("Interaction saved!");
+  };
+
+  const handlePin = () => {
+    if (!result) return;
+    const label = `Variant ${pinnedVariants.length + 1}`;
+    const v = createVariant(label, fnName, args.map((a) => a.value), result, null, simulationMetrics?.cpuInsns, simulationMetrics?.memBytes);
+    setPinnedVariants((prev) => [...prev.slice(-1), v]);
+    toast.success(`Pinned as ${label}`);
   };
 
   const handleLoad = (call: SavedCall) => {
@@ -631,6 +642,48 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
             Send Transaction
           </Button>
         </div>
+        {result && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePin}
+            title="Pin this result for comparison"
+          >
+            <Bookmark className="mr-1 h-3 w-3" /> Pin Result
+          </Button>
+        )}
+
+        {pinnedVariants.length >= 2 && (
+          <div className="rounded-md border border-purple-500/40 bg-purple-500/5 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-purple-700">
+              Simulation Comparison
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              {pinnedVariants.map((v) => (
+                <div key={v.capturedAt} className="space-y-1 rounded-md border bg-background/70 p-3">
+                  <p className="text-xs font-semibold">{v.label}</p>
+                  <p className="break-all font-mono text-[10px] text-muted-foreground">
+                    {v.result ?? v.error}
+                  </p>
+                  {v.cpuInsns !== undefined && (
+                    <p className="font-mono text-[10px]">
+                      CPU: {formatInt(v.cpuInsns)} | Mem: {formatBytes(v.memBytes ?? 0)}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2 text-xs text-muted-foreground"
+              onClick={() => setPinnedVariants([])}
+            >
+              Clear comparison
+            </Button>
+          </div>
+        )}
+
       </CardContent>
     </Card>
   );

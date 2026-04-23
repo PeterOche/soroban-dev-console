@@ -1,4 +1,4 @@
-"use client";
+      const horizonUrl = network.horizonUrl ?? "https://horizon-testnet.stellar.org";"use client";
 
 import { useEffect, useState } from "react";
 import { Horizon } from "@stellar/stellar-sdk";
@@ -71,15 +71,7 @@ export default function AccountDashboard() {
     try {
       const network = getActiveNetworkConfig();
 
-      // Map network to Horizon URL
-      const horizonUrls: Record<string, string> = {
-        mainnet: "https://horizon.stellar.org",
-        testnet: "https://horizon-testnet.stellar.org",
-        futurenet: "https://horizon-futurenet.stellar.org",
-        local: "http://localhost:8000",
-      };
-
-      const horizonUrl = horizonUrls[network.id] || horizonUrls.testnet;
+      const horizonUrl = network.horizonUrl ?? "https://horizon-testnet.stellar.org";
       const server = new Horizon.Server(horizonUrl);
 
       const account = await server.loadAccount(address);

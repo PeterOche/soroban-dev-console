@@ -10,6 +10,7 @@ export interface SavedCall {
   args: ContractArg[];
   network: string;
   createdAt: number;
+  workspaceId?: string;
 }
 
 export interface CartItem extends SavedCall {
@@ -26,6 +27,9 @@ interface SavedCallsState {
   removeFromCart: (cartItemId: string) => void;
   moveCartItem: (cartItemId: string, direction: "up" | "down") => void;
   clearCart: () => void;
+  getCallsForWorkspace: (workspaceId: string) => SavedCall[];
+  assignCallToWorkspace: (callId: string, workspaceId: string) => void;
+  unassignCallFromWorkspace: (callId: string) => void;
 }
 
 export const useSavedCallsStore = create<SavedCallsState>()(
@@ -77,6 +81,23 @@ export const useSavedCallsStore = create<SavedCallsState>()(
         }),
 
       clearCart: () => set({ cartItems: [] }),
+
+      getCallsForWorkspace: (workspaceId) =>
+        get().savedCalls.filter((c) => c.workspaceId === workspaceId),
+
+      assignCallToWorkspace: (callId, workspaceId) =>
+        set((state) => ({
+          savedCalls: state.savedCalls.map((c) =>
+            c.id === callId ? { ...c, workspaceId } : c,
+          ),
+        })),
+
+      unassignCallFromWorkspace: (callId) =>
+        set((state) => ({
+          savedCalls: state.savedCalls.map((c) =>
+            c.id === callId ? { ...c, workspaceId: undefined } : c,
+          ),
+        })),
     }),
     { name: "soroban-saved-calls" },
   ),

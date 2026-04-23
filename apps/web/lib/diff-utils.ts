@@ -68,3 +68,23 @@ export function computeStateDiff(
 
   return diffs;
 }
+
+export interface StorageSnapshot {
+  label: string;
+  takenAt: number;
+  entries: Record<string, string>;
+}
+
+export function takeSnapshot(
+  label: string,
+  entries: Record<string, string>,
+): StorageSnapshot {
+  return { label, takenAt: Date.now(), entries: { ...entries } };
+}
+
+export function diffSnapshots(
+  before: StorageSnapshot,
+  after: StorageSnapshot,
+): DiffResult[] {
+  return computeStateDiff(before.entries, after.entries);
+}

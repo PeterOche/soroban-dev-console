@@ -121,3 +121,39 @@ export function normalizeSimulationResult(
     ...normalizeResourceUsage(sim),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Comparative simulation utilities (FE-011)
+// ---------------------------------------------------------------------------
+
+export interface SimulationVariant {
+  label: string;
+  fnName: string;
+  args: string[];
+  result: string | null;
+  error: string | null;
+  cpuInsns?: number;
+  memBytes?: number;
+  capturedAt: number;
+}
+
+export function createVariant(
+  label: string,
+  fnName: string,
+  args: string[],
+  result: string | null,
+  error: string | null,
+  cpuInsns?: number,
+  memBytes?: number,
+): SimulationVariant {
+  return { label, fnName, args, result, error, cpuInsns, memBytes, capturedAt: Date.now() };
+}
+
+export function compareVariants(a: SimulationVariant, b: SimulationVariant) {
+  return {
+    sameResult: a.result === b.result,
+    sameError: a.error === b.error,
+    cpuDiff: (a.cpuInsns ?? 0) - (b.cpuInsns ?? 0),
+    memDiff: (a.memBytes ?? 0) - (b.memBytes ?? 0),
+  };
+}

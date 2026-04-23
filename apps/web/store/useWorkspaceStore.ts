@@ -27,6 +27,7 @@ interface WorkspaceState {
   addContractToWorkspace: (workspaceId: string, contractId: string) => void;
   attachArtifact: (workspaceId: string, artifact: WorkspaceArtifactRef) => void;
   linkSavedCall: (workspaceId: string, savedCallId: string) => void;
+  unlinkSavedCall: (workspaceId: string, savedCallId: string) => void;
   setWorkspaceNetwork: (workspaceId: string, networkId: string) => void;
   getActiveWorkspace: () => WorkspaceSnapshot | undefined;
   deleteWorkspace: (id: string) => void;
@@ -131,6 +132,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                   savedCallIds: [
                     ...new Set([...workspace.savedCallIds, savedCallId]),
                   ],
+                  updatedAt: Date.now(),
+                }
+              : workspace,
+          ),
+        })),
+
+      unlinkSavedCall: (workspaceId, savedCallId) =>
+        set((state) => ({
+          workspaces: state.workspaces.map((workspace) =>
+            workspace.id === workspaceId
+              ? {
+                  ...workspace,
+                  savedCallIds: workspace.savedCallIds.filter(
+                    (id) => id !== savedCallId,
+                  ),
                   updatedAt: Date.now(),
                 }
               : workspace,

@@ -14,6 +14,7 @@ export interface NetworkConfig {
   name: string;
   rpcUrl: string;
   networkPassphrase: string;
+  horizonUrl?: string;
   isCustom?: boolean;
 }
 
@@ -24,24 +25,28 @@ export const DEFAULT_NETWORKS: Record<string, NetworkConfig> = {
     name: "Mainnet",
     rpcUrl: "https://soroban-rpc.mainnet.stellar.org",
     networkPassphrase: "Public Global Stellar Network ; September 2015",
+    horizonUrl: "https://horizon.stellar.org",
   },
   testnet: {
     id: "testnet",
     name: "Testnet",
     rpcUrl: "https://soroban-testnet.stellar.org",
     networkPassphrase: "Test SDF Network ; September 2015",
+    horizonUrl: "https://horizon-testnet.stellar.org",
   },
   futurenet: {
     id: "futurenet",
     name: "Futurenet",
     rpcUrl: "https://rpc-futurenet.stellar.org",
     networkPassphrase: "Test SDF Future Network ; October 2022",
+    horizonUrl: "https://horizon-futurenet.stellar.org",
   },
   local: {
     id: "local",
     name: "Local Standalone",
     rpcUrl: "http://localhost:8000/soroban/rpc",
     networkPassphrase: "Standalone Network ; February 2017",
+    horizonUrl: "http://localhost:8000",
   },
 };
 
@@ -58,6 +63,7 @@ interface NetworkState {
   // Helpers
   getActiveNetworkConfig: () => NetworkConfig;
   getAllNetworks: () => NetworkConfig[];
+  getHorizonUrl: () => string;
 }
 
 export const useNetworkStore = create<NetworkState>()(
@@ -80,7 +86,6 @@ export const useNetworkStore = create<NetworkState>()(
 
       removeCustomNetwork: (id) =>
         set((state) => {
-          // If deleting the active network, switch back to Testnet safely
           const nextNetwork =
             state.currentNetwork === id ? "testnet" : state.currentNetwork;
           return {
@@ -100,14 +105,17 @@ export const useNetworkStore = create<NetworkState>()(
         const state = get();
         return [...Object.values(DEFAULT_NETWORKS), ...state.customNetworks];
       },
+
+      getHorizonUrl: () => {
+        const network = get().getActiveNetworkConfig();
+        return network.horizonUrl ?? DEFAULT_NETWORKS["testnet"].horizonUrl!;
+      },
     }),
     {
       name: "soroban-network-storage",
-      // Only persist these fields
       partialize: (state) => ({
         currentNetwork: state.currentNetwork,
         customNetworks: state.customNetworks,
-        // health is not persisted - it's real-time data
       }),
     },
   ),
