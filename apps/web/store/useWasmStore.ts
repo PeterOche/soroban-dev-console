@@ -48,6 +48,12 @@ interface WasmState {
   unpinArtifact: (hash: string, pinnedById: string) => void;
   /** FE-050: remove entries that are not pinned and older than maxAgeMs */
   pruneUnpinned: (maxAgeMs?: number) => void;
+  /** FE-048: Guided deploy pipeline state */
+  pipeline: DeployPipelineState;
+  /** FE-048: Advance the pipeline to the next phase */
+  advancePipeline: (phase: DeployPhase, update?: Partial<DeployPipelineState>) => void;
+  /** FE-048: Reset the pipeline to idle */
+  resetPipeline: () => void;
 }
 
 /** FE-050: derive the next version for a given artifact name */
@@ -180,7 +186,46 @@ export const useWasmStore = create<WasmState>()(
           ),
         }));
       },
+      // FE-048: Deploy pipeline
+      pipeline: INITIAL_PIPELINE,
+
+      advancePipeline: (phase, update = {}) =>
+        set((state) => ({
+          pipeline: {
+            ...state.pipeline,
+            ...update,
+            phase,
+            phaseStartedAt: Date.now(),
+            error: phase === "error" ? (update.error ?? state.pipeline.error) : null,
+          },
+        })),
+
+      resetPipeline: () => set({ pipeline: INITIAL_PIPELINE }),
     }),
     { name: "soroban-wasm-storage" },
   ),
 );
+
+// ── FE-048: Deploy pipeline state machine ─────────────────────────────────────
+
+/** Ordered phases of the guided deploy pipeline */
+export type DeployPhase = "idle" | "install" | "instantiate" | "publish" | "done" | "error";
+
+export interface DeployPipelineState {
+  phase: DeployPhase;
+  wasmHash: string | null;
+  contractId: string | null;
+  txHash: string | null;
+  error: string | null;
+  /** Timestamp when the current phase started */
+  phaseStartedAt: number | null;
+}
+
+const INITIAL_PIPELINE: DeployPipelineState = {
+  phase: "idle",
+  wasmHash: null,
+  contractId: null,
+  txHash: null,
+  error: null,
+  phaseStartedAt: null,
+};

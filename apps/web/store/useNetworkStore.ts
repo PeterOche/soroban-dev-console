@@ -64,6 +64,8 @@ interface NetworkState {
   getActiveNetworkConfig: () => NetworkConfig;
   getAllNetworks: () => NetworkConfig[];
   getHorizonUrl: () => string;
+  // FE-042: check if a previously-recorded network still matches current
+  isNetworkMismatch: (recordedNetworkId: string | null) => boolean;
 }
 
 export const useNetworkStore = create<NetworkState>()(
@@ -109,6 +111,12 @@ export const useNetworkStore = create<NetworkState>()(
       getHorizonUrl: () => {
         const network = get().getActiveNetworkConfig();
         return network.horizonUrl ?? DEFAULT_NETWORKS["testnet"].horizonUrl!;
+      },
+
+      // FE-042: returns true when the active network differs from a recorded one
+      isNetworkMismatch: (recordedNetworkId) => {
+        if (!recordedNetworkId) return false;
+        return get().currentNetwork !== recordedNetworkId;
       },
     }),
     {

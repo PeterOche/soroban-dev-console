@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useWallet } from "@/store/useWallet";
 import { useNetworkStore } from "@/store/useNetworkStore";
-import { useWasmStore, type WasmEntry, type ProvenanceNode } from "@/store/useWasmStore";
+import { useWasmStore, type WasmEntry, type ProvenanceNode, type DeployPhase } from "@/store/useWasmStore";
 import { useContractStore } from "@/store/useContractStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import {
@@ -14,7 +14,7 @@ import {
   Address,
 } from "@stellar/stellar-sdk";
 import { Server as SorobanServer } from "@stellar/stellar-sdk/rpc";
-import { signTransaction } from "@stellar/freighter-api";
+import { orchestrateTx } from "@/lib/tx-orchestrator";
 import {
   UploadCloud,
   FileCode,
@@ -26,6 +26,10 @@ import {
   ShieldCheck,
   ShieldAlert,
   Link,
+  CheckCircle2,
+  XCircle,
+  Circle,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@devconsole/ui";
 import {
@@ -154,12 +158,82 @@ function VerifySourcePanel({
   );
 }
 
+// ── FE-048: Deploy pipeline panel ─────────────────────────────────────────────
+
+const PIPELINE_STEPS: { phase: DeployPhase; label: string }[] = [
+  { phase: "install", label: "Install WASM" },
+  { phase: "instantiate", label: "Instantiate Contract" },
+  { phase: "publish", label: "Publish Artifact" },
+];
+
+function DeployPipelinePanel() {
+  const { pipeline, resetPipeline } = useWasmStore();
+  if (pipeline.phase === "idle") return null;
+
+  return (
+    <div className="rounded-lg border bg-muted/30 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-sm font-medium">Deploy Pipeline</span>
+        {(pipeline.phase === "done" || pipeline.phase === "error") && (
+          <Button variant="ghost" size="sm" onClick={resetPipeline}>
+            <RotateCcw className="mr-1 h-3 w-3" /> Reset
+          </Button>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        {PIPELINE_STEPS.map((step, i) => {
+          const isActive = pipeline.phase === step.phase;
+          const isDone =
+            pipeline.phase === "done" ||
+            PIPELINE_STEPS.findIndex((s) => s.phase === pipeline.phase) > i;
+          const isError = pipeline.phase === "error" && isActive;
+
+          return (
+            <div key={step.phase} className="flex items-center gap-2">
+              {i > 0 && <div className="h-px w-6 bg-border" />}
+              <div className="flex flex-col items-center gap-1">
+                {isDone ? (
+                  <CheckCircle2 className="h-5 w-5 text-green-500" />
+                ) : isError ? (
+                  <XCircle className="h-5 w-5 text-destructive" />
+                ) : isActive ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                ) : (
+                  <Circle className="h-5 w-5 text-muted-foreground/40" />
+                )}
+                <span className={`text-xs ${isActive ? "font-medium" : "text-muted-foreground"}`}>
+                  {step.label}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+        {pipeline.phase === "done" && (
+          <div className="flex items-center gap-2">
+            <div className="h-px w-6 bg-border" />
+            <CheckCircle2 className="h-5 w-5 text-green-500" />
+            <span className="text-xs font-medium text-green-600">Done</span>
+          </div>
+        )}
+      </div>
+      {pipeline.error && (
+        <p className="mt-2 text-xs text-destructive">{pipeline.error}</p>
+      )}
+      {pipeline.contractId && pipeline.phase === "done" && (
+        <p className="mt-2 font-mono text-xs text-muted-foreground">
+          Contract: {pipeline.contractId}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function WasmRegistryPage() {
   const { isConnected, address } = useWallet();
   const { getActiveNetworkConfig } = useNetworkStore();
-  const { wasms, addWasm, removeWasm, associateContract, addProvenanceNode } = useWasmStore();
+  const { wasms, addWasm, removeWasm, associateContract, addProvenanceNode, advancePipeline, resetPipeline } = useWasmStore();
   const { activeWorkspaceId, attachArtifact } = useWorkspaceStore();
   const { addContract } = useContractStore();
 
@@ -187,6 +261,7 @@ export default function WasmRegistryPage() {
   const handleInstall = async () => {
     if (!file || !address || !isConnected) return;
     setIsUploading(true);
+    advancePipeline("install"); // FE-048
 
     try {
       const network = getActiveNetworkConfig();
@@ -203,16 +278,12 @@ export default function WasmRegistryPage() {
         .setTimeout(TimeoutInfinite)
         .build();
 
-      const preparedTx = await server.prepareTransaction(tx);
-      const signedXdr = await signTransaction(preparedTx.toXDR(), {
-        networkPassphrase: network.networkPassphrase,
-      });
+      // FE-040: use shared orchestration layer for sign + submit + poll
+      const txResult = await orchestrateTx(tx.toXDR(), network);
 
-      const res = await server.sendTransaction(
-        TransactionBuilder.fromXDR(signedXdr.signedTxXdr, network.networkPassphrase),
-      );
-
-      if (res.status !== "PENDING") throw new Error(`Upload failed: ${res.status}`);
+      if (txResult.status !== "success") {
+        throw new Error(txResult.errorMessage ?? "Upload failed");
+      }
 
       const wasmHash = hash(wasmBuffer).toString("hex");
 
@@ -227,11 +298,15 @@ export default function WasmRegistryPage() {
       });
       attachArtifact(activeWorkspaceId, { kind: "wasm", id: wasmHash });
 
+      // FE-048: advance to instantiate phase
+      advancePipeline("instantiate", { wasmHash, txHash: res.hash });
+
       toast.success("WASM Uploaded & Saved!");
       setFile(null);
       setWasmName("");
     } catch (e: any) {
       console.error(e);
+      advancePipeline("error", { error: e.message }); // FE-048
       toast.error(`Install failed: ${e.message}`);
     } finally {
       setIsUploading(false);
@@ -294,6 +369,10 @@ export default function WasmRegistryPage() {
           });
           addContract(contractId, network.id);
           toast.success(`Contract deployed! ID: ${contractId.slice(0, 10)}…`);
+          // FE-048: advance to publish phase then done
+          advancePipeline("publish", { contractId: res.hash, txHash: res.hash });
+          setTimeout(() => advancePipeline("done", { contractId: res.hash }), 800);
+          toast.success("Contract Instantiated Successfully!");
           break;
         }
         if (status.status === "FAILED") {
@@ -302,9 +381,25 @@ export default function WasmRegistryPage() {
           throw new Error(`Transaction failed. Result XDR: ${errorDetail}`);
         }
         attempts++;
+      // FE-040: use shared orchestration layer for sign + submit + poll
+      const txResult = await orchestrateTx(tx.toXDR(), network);
+
+      if (txResult.status === "success" && txResult.hash) {
+        // SC-003/SC-004: record as inferred until source-registry confirms
+        associateContract(wasmHash, txResult.hash, "inferred");
+        attachArtifact(activeWorkspaceId, {
+          kind: "wasm",
+          id: wasmHash,
+          contractId: txResult.hash,
+          relationship: "inferred",
+        });
+        toast.success("Contract Instantiated Successfully!");
+      } else {
+        throw new Error(txResult.errorMessage ?? "Deploy failed");
       }
     } catch (e: any) {
       console.error(e);
+      advancePipeline("error", { error: e.message }); // FE-048
       toast.error(`Deploy failed: ${e.message}`);
     } finally {
       setDeployingHash(null);
@@ -338,6 +433,9 @@ export default function WasmRegistryPage() {
         </div>
         <InstantiateWizard />
       </div>
+
+      {/* FE-048: Guided deploy pipeline status */}
+      <DeployPipelinePanel />
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <Card className="h-fit lg:col-span-1">

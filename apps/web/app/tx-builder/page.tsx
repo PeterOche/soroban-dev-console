@@ -1,25 +1,30 @@
 "use client";
 
-import { signTransaction } from "@stellar/freighter-api";
 import {
   Contract,
   TimeoutInfinite,
   TransactionBuilder,
   rpc as SorobanRpc,
 } from "@stellar/stellar-sdk";
+import { AlertCircle, Loader2, RotateCcw, Send, Terminal, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { Loader2, Send, Terminal, SlidersHorizontal, FlaskConical } from "lucide-react";
+import { Server as SorobanServer } from "@stellar/stellar-sdk/rpc";
 import { Loader2, Send, Terminal } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { orchestrateTx, simulateTx, type TxStatus } from "@/lib/tx-orchestrator";
 
 import { MultiOpCart } from "@/components/multi-op-cart";
 import {
   convertToScVal,
-  normalizeSimulationResult,
   type NormalizedSimulationResult,
 } from "@devconsole/soroban-utils";
 import { useNetworkStore } from "@/store/useNetworkStore";
 import { SavedCall, useSavedCallsStore } from "@/store/useSavedCallsStore";
 import { useWallet } from "@/store/useWallet";
+import { Alert, AlertDescription } from "@devconsole/ui";
 import { Badge } from "@devconsole/ui";
 import { Button } from "@devconsole/ui";
 import {
@@ -29,11 +34,22 @@ import {
   CardHeader,
   CardTitle,
 } from "@devconsole/ui";
+import { Input } from "@devconsole/ui";
+import { Label } from "@devconsole/ui";
+
+// ── FE-045: Draft persistence key ─────────────────────────────────────────────
+const DRAFT_KEY = "soroban-tx-builder-draft";
 
 type SimulationSummary = {
   operationCount: number;
   details: NormalizedSimulationResult;
 };
+
+/** FE-045: Per-operation validation error */
+interface OpError {
+  cartItemId: string;
+  message: string;
+}
 
 function formatStroops(value: string) {
   const parsed = Number(value);
@@ -48,24 +64,64 @@ function shortKeyBase64(change: NormalizedSimulationResult["stateChanges"][numbe
   }
 }
 
+/** FE-045: Validate each cart item before simulation/submission */
+function validateCartItems(
+  items: ReturnType<typeof useSavedCallsStore.getState>["cartItems"],
+  currentNetwork: string,
+): OpError[] {
+  const errors: OpError[] = [];
+  for (const item of items) {
+    if (!item.contractId) {
+      errors.push({ cartItemId: item.cartItemId, message: "Missing contract ID" });
+    } else if (!item.fnName) {
+      errors.push({ cartItemId: item.cartItemId, message: "Missing function name" });
+    } else if (item.network !== currentNetwork) {
+      errors.push({
+        cartItemId: item.cartItemId,
+        message: `Network mismatch: operation is on ${item.network}, current is ${currentNetwork}`,
+      });
+    }
+  }
+  return errors;
+}
+
 export default function TxBuilderPage() {
   const { savedCalls, cartItems, addToCart, removeFromCart, moveCartItem, clearCart } =
     useSavedCallsStore();
   const { getActiveNetworkConfig, currentNetwork } = useNetworkStore();
-  const { isConnected, address } = useWallet();
+  const { isConnected, address, isSandboxMode, enterSandbox, exitSandbox } = useWallet();
 
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [simulation, setSimulation] = useState<SimulationSummary | null>(null);
+  const [opErrors, setOpErrors] = useState<OpError[]>([]);
+
+  // FE-044: fee/resource tuning
+  const [showFeeControls, setShowFeeControls] = useState(false);
+  const [customFee, setCustomFee] = useState("100");
+  const feeOverride = (() => {
+    const n = Number(customFee);
+    return Number.isFinite(n) && n >= 100 ? String(n) : "100";
+  })();
 
   const networkCalls = useMemo(
     () => savedCalls.filter((call) => call.network === currentNetwork),
     [savedCalls, currentNetwork],
   );
 
+  // FE-045: Persist draft (cart) to localStorage on change
+  useEffect(() => {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(cartItems));
+    } catch {
+      // storage unavailable
+    }
+  }, [cartItems]);
+
   const resetSimulation = () => {
     setSimulation(null);
     setResult(null);
+    setOpErrors([]);
   };
 
   const onAddCall = (call: SavedCall) => {
@@ -86,6 +142,7 @@ export default function TxBuilderPage() {
   const onClear = () => {
     clearCart();
     resetSimulation();
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
   };
 
   const buildOperations = () =>
@@ -95,25 +152,50 @@ export default function TxBuilderPage() {
       return contract.call(item.fnName, ...scArgs);
     });
 
+  /** Build a raw transaction XDR from the current cart items. */
+  const buildTxXdr = async (source: string): Promise<string> => {
+    const network = getActiveNetworkConfig();
+    const server = new SorobanServer(network.rpcUrl);
+    const operations = buildOperations();
+
+    const account = await server.getAccount(source).catch(() => null);
+    const sequence = account ? account.sequenceNumber() : "0";
+
+    const txBuilder = new TransactionBuilder(
+      {
+        accountId: () => source,
+        sequenceNumber: () => sequence,
+        incrementSequenceNumber: () => {},
+      },
+      { fee: "100", networkPassphrase: network.networkPassphrase },
+    );
+    operations.forEach((op) => txBuilder.addOperation(op));
+    return txBuilder.setTimeout(TimeoutInfinite).build().toXDR();
+  };
+
   const handleSimulate = async () => {
     if (cartItems.length < 2) {
       toast.error("Add at least two calls to build a multi-operation transaction.");
       return;
     }
-    if (cartItems.some((item) => item.network !== currentNetwork)) {
-      toast.error("All operations must match the currently selected network.");
+
+    // FE-045: Per-op validation
+    const errors = validateCartItems(cartItems, currentNetwork);
+    if (errors.length > 0) {
+      setOpErrors(errors);
+      toast.error(`${errors.length} operation(s) have validation errors.`);
       return;
     }
 
     setIsLoading(true);
     setResult(null);
     setSimulation(null);
+    setOpErrors([]);
 
     try {
       const network = getActiveNetworkConfig();
       const server = new SorobanRpc.Server(network.rpcUrl);
       const operations = buildOperations();
-
       const source =
         address || "GBZXN7PIRZGNMHGA7MUUUFFAUYVSF74BWXME4R37P2N6F5N4AUM5546F";
       const account = await server.getAccount(source).catch(() => null);
@@ -125,17 +207,20 @@ export default function TxBuilderPage() {
           sequenceNumber: () => sequence,
           incrementSequenceNumber: () => {},
         },
-        { fee: "100", networkPassphrase: network.networkPassphrase },
+        // FE-044: apply fee override
+        { fee: feeOverride, networkPassphrase: network.networkPassphrase },
       );
-
       operations.forEach((op) => txBuilder.addOperation(op));
       const tx = txBuilder.setTimeout(TimeoutInfinite).build();
 
       const sim = await server.simulateTransaction(tx);
       const normalized = normalizeSimulationResult(sim);
+      const txXdr = await buildTxXdr(source);
+      // FE-040: use shared orchestration layer for simulation
+      const normalized = await simulateTx(txXdr, network);
       if (!normalized.ok) throw new Error(normalized.error || "Unknown simulation error");
 
-      setSimulation({ operationCount: operations.length, details: normalized });
+      setSimulation({ operationCount: cartItems.length, details: normalized });
       setResult("Simulation success for batched transaction.");
       toast.success("Simulation success");
     } catch (error: any) {
@@ -156,27 +241,34 @@ export default function TxBuilderPage() {
       toast.error("Add at least two calls to submit a multi-operation transaction.");
       return;
     }
-    if (cartItems.some((item) => item.network !== currentNetwork)) {
-      toast.error("All operations must match the currently selected network.");
+
+    // FE-045: Per-op validation before submit
+    const errors = validateCartItems(cartItems, currentNetwork);
+    if (errors.length > 0) {
+      setOpErrors(errors);
+      toast.error(`${errors.length} operation(s) have validation errors.`);
       return;
     }
 
     setIsLoading(true);
     setResult(null);
+    setOpErrors([]);
 
     try {
       const network = getActiveNetworkConfig();
       const server = new SorobanRpc.Server(network.rpcUrl);
       const operations = buildOperations();
-
+      const server = new SorobanServer(network.rpcUrl);
       const sourceAccount = await server.getAccount(address);
+
       const txBuilder = new TransactionBuilder(sourceAccount, {
-        fee: "100",
+        // FE-044: apply fee override
+        fee: feeOverride,
         networkPassphrase: network.networkPassphrase,
       });
       operations.forEach((op) => txBuilder.addOperation(op));
-
       const tx = txBuilder.setTimeout(TimeoutInfinite).build();
+
       const sim = await server.simulateTransaction(tx);
       const normalized = normalizeSimulationResult(sim);
       if (!normalized.ok) {
@@ -188,18 +280,30 @@ export default function TxBuilderPage() {
       const preparedTx = SorobanRpc.assembleTransaction(tx, sim).build();
       const signedResult = await signTransaction(preparedTx.toXDR(), {
         networkPassphrase: network.networkPassphrase,
+      buildOperations().forEach((op) => txBuilder.addOperation(op));
+      const txXdr = txBuilder.setTimeout(TimeoutInfinite).build().toXDR();
+
+      // FE-040: use shared orchestration layer for sign + submit + poll
+      const txResult = await orchestrateTx(txXdr, network, {}, (status: TxStatus) => {
+        if (status === "awaiting-signature") toast.info("Awaiting wallet signature…");
+        if (status === "submitting") toast.info("Submitting transaction…");
+        if (status === "polling") toast.info("Waiting for confirmation…");
       });
 
-      const sendResult = await server.sendTransaction(
-        TransactionBuilder.fromXDR(signedResult.signedTxXdr, network.networkPassphrase),
-      );
-
-      if (sendResult.status !== "PENDING") {
-        throw new Error(`Submission failed: ${sendResult.status}`);
+      if (txResult.simulation) {
+        setSimulation({ operationCount: cartItems.length, details: txResult.simulation });
       }
 
       setResult(`Transaction submitted. Hash: ${sendResult.hash}`);
       toast.success("Multi-operation transaction submitted.");
+      // FE-045: Clear draft on successful submit
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+      if (txResult.status === "success") {
+        setResult(`Transaction submitted. Hash: ${txResult.hash}`);
+        toast.success("Multi-operation transaction submitted.");
+      } else {
+        throw new Error(txResult.errorMessage ?? "Transaction failed");
+      }
     } catch (error: any) {
       setResult(`Submission failed: ${error.message}`);
       toast.error(`Submission failed: ${error.message}`);
@@ -209,9 +313,9 @@ export default function TxBuilderPage() {
   };
 
   return (
-    <div className="container max-w-6xl space-y-6 p-6">
+    <div className="container mx-auto space-y-6 p-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Multi-Operation Builder</h1>
+        <h1 className="text-2xl font-bold">Multi-Operation Builder</h1>
         <p className="text-muted-foreground">
           Batch saved contract calls into one atomic transaction. Cart is saved locally.
         </p>
@@ -227,45 +331,118 @@ export default function TxBuilderPage() {
         onClear={onClear}
       />
 
+      {/* FE-045: Per-op error reporting */}
+      {opErrors.length > 0 && (
+        <div className="space-y-2">
+          {opErrors.map((err) => {
+            const item = cartItems.find((c) => c.cartItemId === err.cartItemId);
+            return (
+              <Alert key={err.cartItemId} variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <span className="font-medium">{item?.name ?? err.cartItemId}:</span>{" "}
+                  {err.message}
+                </AlertDescription>
+              </Alert>
+            );
+          })}
+        </div>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>Simulate, Sign, Submit</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Terminal className="h-4 w-4" />
+            Simulate, Sign, Submit
+          </CardTitle>
           <CardDescription>
             Build one transaction containing all operations in your cart.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* FE-043: sandbox banner */}
+          {isSandboxMode && (
+            <div className="flex items-center justify-between rounded-md border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-sm">
+              <div className="flex items-center gap-2 text-blue-700">
+                <FlaskConical className="h-4 w-4" />
+                <span>Sandbox mode — simulation only</span>
+              </div>
+              <Button variant="ghost" size="sm" className="text-blue-700" onClick={exitSandbox}>
+                Exit
+              </Button>
+            </div>
+          )}
+          {!isConnected && !isSandboxMode && (
+            <div className="flex items-center justify-between rounded-md border border-dashed px-4 py-2 text-sm text-muted-foreground">
+              <span>No wallet — simulate in sandbox mode</span>
+              <Button variant="outline" size="sm" onClick={enterSandbox}>
+                <FlaskConical className="mr-1 h-3 w-3" />
+                Enter Sandbox
+              </Button>
+            </div>
+          )}
+
+          {/* FE-044: fee controls toggle */}
+          <div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1 text-xs text-muted-foreground"
+              onClick={() => setShowFeeControls((v) => !v)}
+            >
+              <SlidersHorizontal className="h-3 w-3" />
+              {showFeeControls ? "Hide fee controls" : "Fee controls"}
+            </Button>
+          </div>
+
+          {showFeeControls && (
+            <div className="rounded-md border border-dashed p-4 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Advanced Fee Override
+              </p>
+              <div className="max-w-xs space-y-1">
+                <Label className="text-xs">Base Fee (stroops, min 100)</Label>
+                <Input
+                  type="number"
+                  min={100}
+                  value={customFee}
+                  onChange={(e) => setCustomFee(e.target.value)}
+                  placeholder="100"
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Tuned fee stays consistent between simulation and submission.
+              </p>
+            </div>
+          )}
           {simulation && (
-            <div className="rounded-md border border-blue-500/40 bg-blue-500/10 p-4">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <Badge>{simulation.operationCount} operations</Badge>
+            <div className="rounded-md border bg-muted/30 p-4 text-sm">
+              <div className="mb-3 flex flex-wrap gap-2">
+                <Badge variant="secondary">{simulation.operationCount} operations</Badge>
                 {simulation.details.minResourceFee && (
-                  <Badge variant="secondary">
+                  <Badge variant="outline">
                     Min Fee: {formatStroops(simulation.details.minResourceFee)} stroops
                   </Badge>
                 )}
-                <Badge variant="secondary">
+                <Badge variant="outline">
                   {simulation.details.stateChangesCount} state changes
                 </Badge>
                 {simulation.details.cpuInsns !== undefined && (
-                  <Badge variant="secondary">
+                  <Badge variant="outline">
                     CPU: {formatStroops(String(simulation.details.cpuInsns))}
                   </Badge>
                 )}
               </div>
-
               {simulation.details.stateChanges.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No state changes returned by simulation.
-                </p>
+                <p className="text-muted-foreground">No state changes returned by simulation.</p>
               ) : (
-                <div className="grid gap-2">
+                <div className="space-y-1">
                   {simulation.details.stateChanges.map((change, index) => (
-                    <div
-                      key={`${change.type}-${index}`}
-                      className="rounded border bg-background/60 p-2 font-mono text-xs"
-                    >
-                      <span className="mr-2 font-semibold">{change.type}</span>
+                    <div key={index} className="flex gap-2 font-mono text-xs">
+                      <Badge variant="outline" className="shrink-0">
+                        {change.type}
+                      </Badge>
                       <span className="text-muted-foreground">
                         key:{shortKeyBase64(change)}…
                       </span>
@@ -277,37 +454,45 @@ export default function TxBuilderPage() {
           )}
 
           {result && (
-            <div className="break-all rounded-md border-l-4 border-blue-500 bg-muted p-4 font-mono text-xs">
+            <div
+              className={`rounded-md border p-3 font-mono text-xs ${
+                result.startsWith("Simulation failed") || result.startsWith("Submission failed")
+                  ? "border-destructive/50 bg-destructive/10 text-destructive"
+                  : "border-green-500/30 bg-green-500/10 text-green-700"
+              }`}
+            >
               {result}
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="flex gap-2">
             <Button
-              variant="secondary"
-              className="flex-1"
+              variant="outline"
               onClick={handleSimulate}
               disabled={isLoading || cartItems.length < 2}
             >
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />}
+              Simulate Batch
               {isLoading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Terminal className="mr-2 h-4 w-4" />
               )}
-              Simulate Batch
+              {isSandboxMode ? "Simulate Batch (Sandbox)" : "Simulate Batch"}
             </Button>
-
             <Button
-              className="flex-1"
               onClick={handleSubmit}
-              disabled={isLoading || cartItems.length < 2 || !isConnected}
+              disabled={isLoading || cartItems.length < 2 || !isConnected || isSandboxMode}
+              title={isSandboxMode ? "Connect a wallet to submit" : undefined}
             >
+              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+              Sign & Submit
               {isLoading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Send className="mr-2 h-4 w-4" />
               )}
-              Sign & Submit
+              Sign &amp; Submit
             </Button>
           </div>
         </CardContent>

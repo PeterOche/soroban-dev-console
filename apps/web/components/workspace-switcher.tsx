@@ -23,6 +23,7 @@ import { useNetworkStore } from "@/store/useNetworkStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import { useContractStore } from "@/store/useContractStore";
 import { useSavedCallsStore } from "@/store/useSavedCallsStore";
+import { useWorkspaceActivityStore } from "@/store/useWorkspaceActivityStore";
 import { WORKSPACE_TEMPLATES } from "@/lib/fixture-manifest";
 import { toast } from "sonner";
 
@@ -65,6 +66,7 @@ export function WorkspaceSwitcher() {
   const { currentNetwork } = useNetworkStore();
   const { contracts } = useContractStore();
   const { savedCalls } = useSavedCallsStore();
+  const { record } = useWorkspaceActivityStore();
 
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -79,6 +81,9 @@ export function WorkspaceSwitcher() {
   const handleCreate = () => {
     if (newName.trim()) {
       createWorkspace(newName, currentNetwork);
+      // FE-035: record activity
+      const created = useWorkspaceStore.getState().workspaces.at(-1);
+      if (created) record(created.id, "workspace_created", `Workspace "${newName}" created`);
       setNewName("");
       setIsCreating(false);
     }
@@ -120,6 +125,7 @@ export function WorkspaceSwitcher() {
     });
 
     if (shareId) {
+      record(ws.id, "workspace_synced", `Workspace "${ws.name}" synced to cloud`, shareId);
       toast.success("Workspace synced to cloud");
     } else {
       toast.error("Sync failed — check API connection");
