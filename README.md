@@ -3,199 +3,259 @@
 > A comprehensive web-based developer toolkit for building, testing, and debugging Soroban smart contracts on Stellar.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Wave Participant](https://img.shields.io/badge/Drips%20Wave-Participant-blue)](https://www.drips.network/wave)
 
-## 🎯 The Problem
+## Overview
 
-Current Soroban development relies heavily on CLI tools, creating barriers for:
+Soroban DevConsole provides an intuitive web interface for Soroban smart contract development, bridging the gap between CLI-heavy workflows and visual debugging tools. It features workspace management, contract interaction, RPC proxying, and shareable state snapshots.
 
-- Developers new to blockchain development
-- Teams needing visual debugging tools
-- Quick contract testing and interaction
-- Real-time transaction monitoring
+## Architecture
 
-**Soroban DevConsole bridges this gap** with an intuitive web interface that makes Soroban development more accessible and efficient.
-
----
-
-## ✨ Features
-
-### 🔍 Contract Explorer
-
-Browse and interact with deployed Soroban contracts without touching the command line.
-
-- Visual interface for all contract functions
-- Real-time contract state inspection
-- Form-based contract interaction
-- Support for all Soroban data types
-
-### 💼 Account Dashboard
-
-Manage your Stellar accounts with a clean, intuitive interface.
-
-- View balances and assets at a glance
-- Monitor account activity in real-time
-- Multi-account management
-- Quick access to common operations
-
-### 📊 Transaction Monitor
-
-Never miss what's happening on-chain.
-
-- Real-time transaction tracking
-- Detailed transaction history with search/filter
-- Success/failure visualization
-- Transaction replay for debugging
-
-### 🔐 Wallet Integration
-
-Secure authentication with popular Stellar wallets.
-
-- Freighter wallet support
-- Albedo wallet support
-- Secure transaction signing
-- Persistent connection across sessions
-
-### 🌐 Network Management
-
-Seamlessly switch between networks.
-
-- Testnet for safe experimentation
-- Mainnet for production deployments
-- Futurenet for cutting-edge features
-- Local network support for development
-
----
-
-## 🗺️ Roadmap
-
-### Phase 1: Foundation (Wave #1 - Completed)
-
-- [x] Project initialization
-- [x] Core dashboard interface
-- [x] Contract explorer and interaction
-- [x] Account management
-- [x] Transaction monitoring
-- [x] Wallet integration (Freighter & Albedo)
-- [x] Network switching
-
-### Phase 2: Advanced Capabilities (Current - Wave #2)
-
-- [ ] Dynamic Contract UI Generation from ABI
-- [ ] Support Complex ScVal Types (Vec, Map, Bytes)
-- [ ] Functional Token Actions (Transfer/Mint)
-- [ ] Contract Interface Scratchpad (Code Tab)
-- [ ] Export Transaction History (CSV downloads)
-- [ ] Real-time Network Health Indicator
-- [ ] Next.js Error Boundaries & 404 Pages
-
----
-
-## 🚀 Tech Stack
-
-- **Frontend:** Next.js 14 (App Router), React 18, TypeScript
-- **Styling:** Tailwind CSS, Shadcn/ui components
-- **Blockchain:** Stellar SDK, Soroban SDK
-- **State Management:** Zustand
-- **Testing:** Jest, React Testing Library
-- **Deployment:** Vercel
-
----
-
-## 🏗️ Project Status
-
-**Current Status:** 🚧 In Development (Wave #2 Active)
-
-This project is participating in **Drips Wave** - a recurring funding cycle for open-source contributions on Stellar/Soroban ecosystem projects.
-
-## **Wave #2 Focus:** Expanding advanced capabilities—specifically dynamic ABI form generation, complex data types, and improved developer UX tools.
-
-## 🤝 Contributing
-
-We welcome contributions from developers of all skill levels! This project participates in **Drips Wave**, which means contributors earn rewards for merged pull requests.
-
-### How to Contribute
-
-1. **Browse Issues:** Check our [Issues](https://github.com/Ibinola/soroban-dev-console/issues) page for available tasks
-2. **Apply:** Comment on an issue to express interest
-3. **Get Assigned:** Wait for maintainer assignment
-4. **Build & Submit:** Create your PR following our guidelines
-
-### What We're Looking For
-
-- **Frontend Developers:** UI/UX improvements, React components
-- **Backend Developers:** API integrations, data handling
-- **Blockchain Developers:** Stellar/Soroban expertise
-- **Technical Writers:** Documentation and tutorials
-- **Designers:** UI/UX design improvements
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines.
-
----
-
-## 📚 Resources
-
-### Stellar/Soroban Documentation
-
-- [Stellar Developers](https://developers.stellar.org/)
-- [Soroban Documentation](https://soroban.stellar.org/)
-- [Stellar SDK](https://github.com/stellar/js-stellar-sdk)
-
-### Drips Wave
-
-- [Drips Wave Overview](https://www.drips.network/wave)
-- [Wave Documentation](https://docs.drips.network/wave)
-- [Maintainer Guide](https://docs.drips.network/wave/maintainers/participating-in-a-wave)
-
-### Community
-
-- [Stellar Discord](https://discord.gg/stellardev)
-- [Drips Discord](https://discord.gg/BakDKKDpHF)
-
----
-
-## 🛠️ Development Setup
-
-> **Note:** Detailed setup instructions will be added as the project develops. Check back soon!
-
-```bash
-# Coming soon - Project is in early setup phase
-# Watch this repo for updates!
+```
+┌─────────────────┐         ┌──────────────────┐         ┌─────────────────┐
+│   Web Frontend  │◄───────►│   API Backend    │◄───────►│  Soroban RPC    │
+│   (Next.js 15)  │         │   (NestJS)       │         │  Endpoints      │
+└─────────────────┘         └──────────────────┘         └─────────────────┘
+          │                          │
+          │                          │
+          ▼                          ▼
+┌─────────────────┐         ┌──────────────────┐
+│  Browser Store  │         │   SQLite DB      │
+│  (Zustand)      │         │   (Prisma)       │
+└─────────────────┘         └──────────────────┘
 ```
 
----
+### Key Components
 
-## 📄 License
+- **Workspace Management**: Isolated development environments with contract collections
+- **RPC Proxy**: Backend-mediated access to Soroban RPC with caching, failover, and rate limiting
+- **Share Links**: Read-only snapshots of workspace state for collaboration
+- **Contract Explorer**: Visual interface for contract interaction and state inspection
+- **Transaction Monitor**: Real-time transaction tracking and debugging
+
+## Tech Stack
+
+### Frontend (apps/web)
+- **Framework**: Next.js 15 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS, Shadcn/ui components
+- **State Management**: Zustand with schema versioning
+- **Blockchain**: Stellar SDK, Soroban SDK
+
+### Backend (apps/api)
+- **Framework**: NestJS
+- **Language**: TypeScript
+- **Database**: SQLite with Prisma ORM
+- **Features**: RPC proxy, workspace CRUD, share links, audit logging
+
+### Smart Contracts (contracts/)
+- **Language**: Rust
+- **Framework**: Soroban SDK
+- **Purpose**: Test fixtures and examples
+
+### Monorepo Tooling
+- **Build System**: Turborepo
+- **Package Manager**: npm
+- **Code Quality**: Prettier, ESLint
+
+## Project Structure
+
+```
+soroban-dev-console/
+├── apps/
+│   ├── web/                  # Next.js frontend application
+│   │   ├── app/              # Next.js App Router pages
+│   │   ├── components/       # React components
+│   │   ├── lib/              # Utilities and API clients
+│   │   └── store/            # Zustand state stores
+│   └── api/                  # NestJS backend application
+│       ├── src/
+│       │   ├── modules/      # Feature modules (workspaces, rpc, shares)
+│       │   ├── lib/          # Shared utilities
+│       │   └── auth/         # Authentication guards
+│       └── prisma/           # Database schema and migrations
+├── contracts/                # Soroban smart contract fixtures
+│   ├── counter-fixture/
+│   ├── event-fixture/
+│   └── ...
+├── packages/                 # Shared packages
+│   ├── api-contracts/        # TypeScript API type definitions
+│   └── ui/                   # Shared UI components
+├── docs/                     # Documentation
+└── scripts/                  # Build and deployment scripts
+```
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18 or later
+- npm 9 or later
+- Git
+
+### Installation
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/Ibinola/soroban-dev-console.git
+   cd soroban-dev-console
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+
+3. **Set up environment variables**:
+   
+   For the API:
+   ```bash
+   cp apps/api/.env.example apps/api/.env
+   ```
+   
+   For the Web app:
+   ```bash
+   cp apps/web/.env.example apps/web/.env.local
+   ```
+
+4. **Initialize the database**:
+   ```bash
+   cd apps/api
+   npx prisma generate
+   npx prisma db push
+   npx prisma db seed
+   cd ../..
+   ```
+
+5. **Start development servers**:
+   ```bash
+   npm run dev
+   ```
+   
+   This starts both the API (port 4000) and web app (port 3000) concurrently.
+
+6. **Open the application**:
+   Navigate to [http://localhost:3000](http://localhost:3000)
+
+## Development Workflow
+
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run API tests only
+npm run test --filter=api
+
+# Run web tests only
+npm run test --filter=web
+```
+
+### Code Quality
+
+```bash
+# Lint and format
+npm run lint
+npm run format
+
+# Type checking
+npm run type-check
+```
+
+### Database Migrations
+
+```bash
+cd apps/api
+
+# Create a new migration
+npx prisma migrate dev --name <description>
+
+# Apply migrations
+npx prisma migrate deploy
+
+# Reset database (development only)
+npx prisma migrate reset
+```
+
+## Environment Configuration
+
+### API Environment (apps/api/.env)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | API server port | `4000` |
+| `WEB_ORIGIN` | Allowed CORS origin | `http://localhost:3000` |
+| `DATABASE_URL` | SQLite database path | `file:./dev.db` |
+| `SOROBAN_RPC_TESTNET_URL` | Testnet RPC endpoint | (required) |
+| `SOROBAN_RPC_MAINNET_URL` | Mainnet RPC endpoint | (optional) |
+| `SOROBAN_RPC_FUTURENET_URL` | Futurenet RPC endpoint | (optional) |
+| `SOROBAN_RPC_LOCAL_URL` | Local network RPC endpoint | (optional) |
+
+### Web Environment (apps/web/.env.local)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NEXT_PUBLIC_API_URL` | Backend API URL | `http://localhost:4000` |
+| `NEXT_PUBLIC_RPC_TESTNET` | Testnet RPC (client-side) | (required) |
+| `NEXT_PUBLIC_RPC_MAINNET` | Mainnet RPC (client-side) | (optional) |
+| `NEXT_PUBLIC_PASSPHRASE_*` | Network passphrases | (see .env.example) |
+
+## Key Features
+
+### Workspace Management
+- Create isolated development environments
+- Import/export workspace state
+- Version-controlled schema migrations
+- Share workspaces via read-only links
+
+### RPC Proxy
+- Backend-mediated RPC access with caching
+- Automatic failover across multiple endpoints
+- Rate limiting and method policies
+- Correlation ID tracing for debugging
+
+### Security
+- Owner-key based authentication (bearer token)
+- CORS protection with restrictive header policies
+- Security headers (X-Content-Type-Options, X-Frame-Options, etc.)
+- Input validation and sanitization
+- Audit logging for all mutations
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+
+### Quick Start for Contributors
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Make your changes
+4. Run tests: `npm test`
+5. Commit with descriptive messages
+6. Push and open a Pull Request
+
+## Resources
+
+- [Stellar Developers Documentation](https://developers.stellar.org/)
+- [Soroban Documentation](https://soroban.stellar.org/)
+- [Stellar SDK](https://github.com/stellar/js-stellar-sdk)
+- [Stellar Discord](https://discord.gg/stellardev)
+
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
 
----
-
-## 👥 Maintainer
+## Maintainer
 
 - GitHub: [@Ibinola](https://github.com/Ibinola)
 - Project: [Soroban DevConsole](https://github.com/Ibinola/soroban-dev-console)
 
----
+## Support
 
-## 🌊 Wave #1 Participant
-
-This project is part of **Stellar Wave #1** - launched January 2026.
-
-**For Contributors:** Join us in building developer tools for the Soroban ecosystem and earn rewards for your work!
-
-**For Maintainers:** Interested in participating in future Waves? [Learn more](https://www.drips.network/wave)
-
----
-
-## 📮 Contact & Support
-
-- **Issues:** [GitHub Issues](https://github.com/Ibinola/soroban-dev-console/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/Ibinola/soroban-dev-console/discussions)
-- **Discord:** Join the Drips or Stellar Discord for real-time chat
+- **Issues**: [GitHub Issues](https://github.com/Ibinola/soroban-dev-console/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Ibinola/soroban-dev-console/discussions)
+- **Discord**: Join the Stellar Discord for real-time chat
 
 ---
 
 **⭐ Star this repo** if you're excited about making Soroban development more accessible!
-
-**🔔 Watch this repo** to stay updated on Wave cycles and new contribution opportunities.
