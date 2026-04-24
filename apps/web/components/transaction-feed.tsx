@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useWallet } from "@/store/useWallet";
 import { useNetworkStore } from "@/store/useNetworkStore";
 import { fetchRecentTransactions, NormalizedTx } from "@/lib/history-utils";
+import Link from "next/link";
 import {
   Activity,
   AlertCircle,
@@ -11,6 +12,7 @@ import {
   CheckCircle2,
   Clock,
   ExternalLink,
+  Info,
   RefreshCw,
   WifiOff,
   XCircle,
@@ -286,6 +288,18 @@ export function TransactionFeed() {
                     )}
                   </div>
                 </div>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  asChild
+                  className="h-8 w-8 text-muted-foreground"
+                  title="View details"
+                >
+                  <Link href={`/tx/${tx.hash}`}>
+                    <Info className="h-4 w-4" />
+                  </Link>
+                </Button>
 
                 <Button
                   variant="ghost"
