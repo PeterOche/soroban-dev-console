@@ -80,3 +80,92 @@ export async function fetchRecentTransactions(
 
   return { records: unique, nextCursor };
 }
+
+// ── FE-047: Backend-assisted transaction polling ──────────────────────────────
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+
+export type TxPollStatus = "pending" | "success" | "failed" | "not_found";
+
+export interface TxPollResult {
+  hash: string;
+  status: TxPollStatus;
+  /** Normalized tx if resolved */
+  tx?: NormalizedTx;
+  error?: string;
+}
+
+/**
+ * Poll transaction status via the backend RPC proxy.
+ * Falls back to direct Horizon lookup if the API is unreachable.
+ */
+export async function pollTransactionStatus(
+  hash: string,
+  horizonUrl: string,
+  maxAttempts = 12,
+  intervalMs = 2500,
+): Promise<TxPollResult> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, intervalMs));
+
+    // Try backend proxy first
+    try {
+      const res = await fetch(`${API_BASE}/rpc/tx/${hash}`, { signal: AbortSignal.timeout(5000) });
+      if (res.ok) {
+        const data = (await res.json()) as { status: string; result?: any };
+        if (data.status === "SUCCESS" && data.result) {
+          return { hash, status: "success", tx: normalizeTx(data.result) };
+        }
+        if (data.status === "FAILED") {
+          return { hash, status: "failed", error: "Transaction failed on-chain" };
+        }
+        // PENDING — continue polling
+        continue;
+      }
+    } catch {
+      // API unreachable — fall through to Horizon fallback
+    }
+
+    // Horizon fallback
+    try {
+      const res = await fetch(`${horizonUrl}/transactions/${hash}`);
+      if (res.status === 404) continue;
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          hash,
+          status: data.successful ? "success" : "failed",
+          tx: normalizeTx(data),
+        };
+      }
+    } catch {
+      // network error — keep retrying
+    }
+  }
+  return { hash, status: "not_found", error: "Timed out waiting for transaction" };
+}
+
+/**
+ * Fetch a single transaction by hash, trying backend proxy then Horizon.
+ */
+export async function fetchTransactionByHash(
+  hash: string,
+  horizonUrl: string,
+): Promise<NormalizedTx | null> {
+  try {
+    const res = await fetch(`${API_BASE}/rpc/tx/${hash}`, { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.result) return normalizeTx(data.result);
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    const res = await fetch(`${horizonUrl}/transactions/${hash}`);
+    if (res.ok) return normalizeTx(await res.json());
+  } catch {
+    // ignore
+  }
+  return null;
+}

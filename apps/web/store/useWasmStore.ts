@@ -46,6 +46,12 @@ interface WasmState {
   addProvenanceNode: (node: ProvenanceNode) => void;
   /** SC-003: Get all provenance nodes for a given WASM hash */
   getProvenance: (hash: string) => ProvenanceNode[];
+  /** FE-048: Guided deploy pipeline state */
+  pipeline: DeployPipelineState;
+  /** FE-048: Advance the pipeline to the next phase */
+  advancePipeline: (phase: DeployPhase, update?: Partial<DeployPipelineState>) => void;
+  /** FE-048: Reset the pipeline to idle */
+  resetPipeline: () => void;
 }
 
 export const useWasmStore = create<WasmState>()(
@@ -105,7 +111,47 @@ export const useWasmStore = create<WasmState>()(
         const entry = get().wasms.find((w) => w.hash === hash);
         return entry?.provenance ?? [];
       },
+
+      // FE-048: Deploy pipeline
+      pipeline: INITIAL_PIPELINE,
+
+      advancePipeline: (phase, update = {}) =>
+        set((state) => ({
+          pipeline: {
+            ...state.pipeline,
+            ...update,
+            phase,
+            phaseStartedAt: Date.now(),
+            error: phase === "error" ? (update.error ?? state.pipeline.error) : null,
+          },
+        })),
+
+      resetPipeline: () => set({ pipeline: INITIAL_PIPELINE }),
     }),
     { name: "soroban-wasm-storage" },
   ),
 );
+
+// ── FE-048: Deploy pipeline state machine ─────────────────────────────────────
+
+/** Ordered phases of the guided deploy pipeline */
+export type DeployPhase = "idle" | "install" | "instantiate" | "publish" | "done" | "error";
+
+export interface DeployPipelineState {
+  phase: DeployPhase;
+  wasmHash: string | null;
+  contractId: string | null;
+  txHash: string | null;
+  error: string | null;
+  /** Timestamp when the current phase started */
+  phaseStartedAt: number | null;
+}
+
+const INITIAL_PIPELINE: DeployPipelineState = {
+  phase: "idle",
+  wasmHash: null,
+  contractId: null,
+  txHash: null,
+  error: null,
+  phaseStartedAt: null,
+};
