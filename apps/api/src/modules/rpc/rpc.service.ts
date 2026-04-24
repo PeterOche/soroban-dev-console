@@ -21,6 +21,7 @@ import {
   getMethodPolicy,
   buildMethodNotAllowedError,
 } from "./rpc-method-policy.js";
+import { getCorrelationId } from "../../lib/request-context.js";
 
 const networkSchema = z.enum(["mainnet", "testnet", "futurenet", "local"]);
 
@@ -196,11 +197,16 @@ export class RpcService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), policy.timeoutMs);
     const start = Date.now();
+    const correlationId = getCorrelationId();
 
     try {
       const upstreamResponse = await fetch(rpcUrl, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          // DEVOPS-001: Propagate correlation ID to upstream RPC
+          ...(correlationId ? { "x-request-id": correlationId } : {}),
+        },
         body: serializedPayload,
         signal: controller.signal,
       });
@@ -225,12 +231,18 @@ export class RpcService {
         statusCode: result.statusCode,
         durationMs: Date.now() - start,
         cached: false,
+        correlationId,
       });
 
       return result;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        this.events.emit(RPC_UPSTREAM_ERROR, { network, method, errorName: "AbortError" });
+        this.events.emit(RPC_UPSTREAM_ERROR, {
+          network,
+          method,
+          errorName: "AbortError",
+          correlationId,
+        });
         throw new GatewayTimeoutException(
           `RPC upstream timed out after ${policy.timeoutMs}ms`
         );
@@ -240,6 +252,7 @@ export class RpcService {
         network,
         method,
         errorName: error instanceof Error ? error.name : "UnknownError",
+        correlationId,
       });
       throw new BadGatewayException("Failed to proxy RPC request");
     } finally {

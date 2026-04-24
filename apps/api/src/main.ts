@@ -6,6 +6,7 @@ import { AppModule } from "./app.module.js";
 import { validateEnv } from "./lib/validate-env.js";
 import { ApiErrorFilter } from "./lib/api-error.filter.js";
 import { ApiResponseInterceptor } from "./lib/api-response.interceptor.js";
+import { CorrelationInterceptor } from "./lib/correlation.interceptor.js";
 
 async function bootstrap() {
   validateEnv();
@@ -23,7 +24,8 @@ async function bootstrap() {
   });
   app.setGlobalPrefix("api");
   app.useGlobalFilters(new ApiErrorFilter());
-  app.useGlobalInterceptors(new ApiResponseInterceptor());
+  // DEVOPS-001: Register correlation interceptor first to ensure all requests are traced
+  app.useGlobalInterceptors(new CorrelationInterceptor(), new ApiResponseInterceptor());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

@@ -1,6 +1,8 @@
 /**
  * FE-013 / FE-014: Typed API client for workspace CRUD and share-link operations.
  * Aligned with backend NestJS routes and shared contracts.
+ *
+ * DEVOPS-001: Includes correlation ID tracking for end-to-end request tracing.
  */
 
 import {
@@ -19,15 +21,25 @@ import {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
+// DEVOPS-001: Generate correlation IDs for request tracing
+function generateCorrelationId(): string {
+  return crypto.randomUUID?.() || `req-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 async function apiFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  // DEVOPS-001: Generate correlation ID for this request
+  const correlationId = generateCorrelationId();
+  
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { 
       "Content-Type": "application/json",
       // If we had auth tokens, we'd add them here
       "x-owner-key": localStorage.getItem("owner-key") || "default-dev-key",
+      // DEVOPS-001: Include correlation ID for tracing
+      "x-request-id": correlationId,
     },
     ...init,
   });
@@ -35,9 +47,13 @@ async function apiFetch<T>(
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as ApiEnvelope<any>;
     if (body && "error" in body) {
-      throw new ApiError(body.error.message, body.error.code, body.error.details);
+      throw new ApiError(
+        `${body.error.message} [${correlationId}]`,
+        body.error.code,
+        body.error.details,
+      );
     }
-    throw new Error(`API error ${res.status}: ${res.statusText}`);
+    throw new Error(`API error ${res.status}: ${res.statusText} [${correlationId}]`);
   }
 
   // We assume for now that the backend might or might not wrap success responses

@@ -4,9 +4,16 @@
  * Routes simulation, ledger reads, and transaction polling through the
  * backend /api/rpc/:network endpoint instead of calling Soroban RPC directly.
  * Network and upstream errors are normalized consistently.
+ *
+ * DEVOPS-001: Includes correlation ID tracking for end-to-end request tracing.
  */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+
+// DEVOPS-001: Generate correlation IDs for request tracing
+function generateCorrelationId(): string {
+  return crypto.randomUUID?.() || `req-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
 
 export class RpcGatewayError extends Error {
   constructor(
@@ -46,6 +53,7 @@ export async function rpcCall<T = unknown>(
   params?: unknown,
 ): Promise<T> {
   const id = nextId();
+  const correlationId = generateCorrelationId();
   const body: JsonRpcRequest & { jsonrpc: "2.0"; id: number } = {
     jsonrpc: "2.0",
     id,
@@ -57,15 +65,26 @@ export async function rpcCall<T = unknown>(
   try {
     res = await fetch(`${API_BASE}/api/rpc/${network}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // DEVOPS-001: Include correlation ID for tracing
+        "x-request-id": correlationId,
+      },
       body: JSON.stringify(body),
     });
   } catch (err) {
-    throw new RpcGatewayError("Network error reaching RPC gateway", "NETWORK_ERROR", err);
+    throw new RpcGatewayError(
+      `Network error reaching RPC gateway [${correlationId}]`,
+      "NETWORK_ERROR",
+      err,
+    );
   }
 
   if (!res.ok) {
-    throw new RpcGatewayError(`RPC gateway returned HTTP ${res.status}`, "HTTP_ERROR");
+    throw new RpcGatewayError(
+      `RPC gateway returned HTTP ${res.status} [${correlationId}]`,
+      "HTTP_ERROR",
+    );
   }
 
   const json = (await res.json()) as JsonRpcResponse<T>;
@@ -88,6 +107,7 @@ export async function rpcBatch<T = unknown>(
   network: string,
   requests: JsonRpcRequest[],
 ): Promise<JsonRpcResponse<T>[]> {
+  const correlationId = generateCorrelationId();
   const batch = requests.map((r) => ({
     jsonrpc: "2.0" as const,
     id: nextId(),
@@ -99,15 +119,26 @@ export async function rpcBatch<T = unknown>(
   try {
     res = await fetch(`${API_BASE}/api/rpc/${network}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // DEVOPS-001: Include correlation ID for tracing
+        "x-request-id": correlationId,
+      },
       body: JSON.stringify(batch),
     });
   } catch (err) {
-    throw new RpcGatewayError("Network error reaching RPC gateway", "NETWORK_ERROR", err);
+    throw new RpcGatewayError(
+      `Network error reaching RPC gateway [${correlationId}]`,
+      "NETWORK_ERROR",
+      err,
+    );
   }
 
   if (!res.ok) {
-    throw new RpcGatewayError(`RPC gateway returned HTTP ${res.status}`, "HTTP_ERROR");
+    throw new RpcGatewayError(
+      `RPC gateway returned HTTP ${res.status} [${correlationId}]`,
+      "HTTP_ERROR",
+    );
   }
 
   return res.json() as Promise<JsonRpcResponse<T>[]>;
