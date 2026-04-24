@@ -54,8 +54,10 @@ import { Badge } from "@devconsole/ui";
 import {
   createNormalizedContractSpecFromFunctionNames,
   parseWasmMetadata,
+  extractContractIdFromDeployResult,
 } from "@devconsole/soroban-utils";
 import { registerSource } from "@/lib/source-registry";
+import { InstantiateWizard } from "@/components/instantiate-wizard";
 
 // ── Provenance panel ──────────────────────────────────────────────────────────
 
@@ -350,19 +352,33 @@ export default function WasmRegistryPage() {
         await new Promise((r) => setTimeout(r, 2000));
         const status = await server.getTransaction(res.hash);
         if (status.status === "SUCCESS") {
-          // SC-003/SC-004: record as inferred until source-registry confirms
-          associateContract(wasmHash, res.hash, "inferred");
+          // FE-049: decode the real contract ID from the transaction result XDR
+          const realContractId =
+            status.resultMetaXdr
+              ? extractContractIdFromDeployResult(status.resultMetaXdr)
+              : null;
+          const contractId = realContractId ?? res.hash;
+          const relationship = realContractId ? "confirmed" : "inferred";
+
+          associateContract(wasmHash, contractId, relationship);
           attachArtifact(activeWorkspaceId, {
             kind: "wasm",
             id: wasmHash,
-            contractId: res.hash,
-            relationship: "inferred",
+            contractId,
+            relationship,
           });
+          addContract(contractId, network.id);
+          toast.success(`Contract deployed! ID: ${contractId.slice(0, 10)}…`);
           // FE-048: advance to publish phase then done
           advancePipeline("publish", { contractId: res.hash, txHash: res.hash });
           setTimeout(() => advancePipeline("done", { contractId: res.hash }), 800);
           toast.success("Contract Instantiated Successfully!");
           break;
+        }
+        if (status.status === "FAILED") {
+          // FE-049: preserve failure context for debugging
+          const errorDetail = (status as any).resultXdr ?? "unknown";
+          throw new Error(`Transaction failed. Result XDR: ${errorDetail}`);
         }
         attempts++;
       // FE-040: use shared orchestration layer for sign + submit + poll
@@ -410,9 +426,12 @@ export default function WasmRegistryPage() {
 
   return (
     <div className="container mx-auto space-y-8 p-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">WASM Registry</h1>
-        <p className="text-muted-foreground">Upload, manage, and deploy contract code.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">WASM Registry</h1>
+          <p className="text-muted-foreground">Upload, manage, and deploy contract code.</p>
+        </div>
+        <InstantiateWizard />
       </div>
 
       {/* FE-048: Guided deploy pipeline status */}
