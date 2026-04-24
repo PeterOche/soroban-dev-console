@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useWallet } from "@/store/useWallet";
 import { useNetworkStore } from "@/store/useNetworkStore";
-import { useWasmStore, type WasmEntry } from "@/store/useWasmStore";
+import { useWasmStore, type WasmEntry, type ProvenanceNode } from "@/store/useWasmStore";
 import { useContractStore } from "@/store/useContractStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import {
@@ -22,6 +22,10 @@ import {
   Copy,
   Play,
   Trash2,
+  GitBranch,
+  ShieldCheck,
+  ShieldAlert,
+  Link,
 } from "lucide-react";
 import { Button } from "@devconsole/ui";
 import {
@@ -47,11 +51,113 @@ import {
   createNormalizedContractSpecFromFunctionNames,
   parseWasmMetadata,
 } from "@devconsole/soroban-utils";
+import { registerSource } from "@/lib/source-registry";
+
+// ── Provenance panel ──────────────────────────────────────────────────────────
+
+function ProvenancePanel({ nodes }: { nodes: ProvenanceNode[] }) {
+  if (nodes.length === 0) return null;
+  return (
+    <div className="mt-2 space-y-1 rounded-md border bg-muted/40 p-2">
+      <p className="flex items-center gap-1 text-[10px] font-bold uppercase text-muted-foreground">
+        <GitBranch className="h-3 w-3" /> Provenance
+      </p>
+      {nodes.map((n) => (
+        <div key={n.contractId} className="flex items-center gap-2 text-[11px]">
+          <span className="font-mono text-muted-foreground">{n.contractId.slice(0, 10)}…</span>
+          <Badge
+            variant={n.relationship === "confirmed" ? "default" : "secondary"}
+            className="text-[9px]"
+          >
+            {n.relationship}
+          </Badge>
+          <span className="text-muted-foreground">{n.network}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Verification badge ────────────────────────────────────────────────────────
+
+function VerificationBadge({ entry }: { entry: WasmEntry }) {
+  const confirmed = (entry.provenance ?? []).some((p) => p.relationship === "confirmed");
+  if (!entry.deployedContractId) return null;
+  return confirmed ? (
+    <span title="Source verified" className="text-green-500">
+      <ShieldCheck className="h-3.5 w-3.5" />
+    </span>
+  ) : (
+    <span title="Verification pending" className="text-yellow-500">
+      <ShieldAlert className="h-3.5 w-3.5" />
+    </span>
+  );
+}
+
+// ── Verify source panel ───────────────────────────────────────────────────────
+
+function VerifySourcePanel({
+  entry,
+  onVerified,
+}: {
+  entry: WasmEntry;
+  onVerified: (contractId: string) => void;
+}) {
+  const { getActiveNetworkConfig } = useNetworkStore();
+  const { address } = useWallet();
+  const [repoUrl, setRepoUrl] = useState("");
+  const [verifying, setVerifying] = useState(false);
+
+  const registryId = process.env.NEXT_PUBLIC_CONTRACT_SOURCE_REGISTRY ?? null;
+  const isConfirmed = (entry.provenance ?? []).some((p) => p.relationship === "confirmed");
+
+  if (!entry.deployedContractId || isConfirmed || !registryId) return null;
+
+  const handleVerify = async () => {
+    if (!repoUrl || !address) return;
+    setVerifying(true);
+    try {
+      const network = getActiveNetworkConfig();
+      const ok = await registerSource(
+        { rpcUrl: network.rpcUrl, networkPassphrase: network.networkPassphrase },
+        registryId,
+        address,
+        entry.deployedContractId!,
+        repoUrl,
+      );
+      if (ok) {
+        onVerified(entry.deployedContractId!);
+        toast.success("Source registered — provenance confirmed.");
+      } else {
+        toast.error("Source registration failed.");
+      }
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <Input
+        className="h-7 text-xs"
+        placeholder="https://github.com/org/repo"
+        value={repoUrl}
+        onChange={(e) => setRepoUrl(e.target.value)}
+      />
+      <Button size="sm" variant="outline" onClick={handleVerify} disabled={verifying || !repoUrl}>
+        {verifying ? <Loader2 className="h-3 w-3 animate-spin" /> : <Link className="h-3 w-3" />}
+        <span className="ml-1 text-xs">Verify</span>
+      </Button>
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function WasmRegistryPage() {
   const { isConnected, address } = useWallet();
   const { getActiveNetworkConfig } = useNetworkStore();
-  const { wasms, addWasm, removeWasm, associateContract } = useWasmStore();
+  const { wasms, addWasm, removeWasm, associateContract, addProvenanceNode } = useWasmStore();
   const { activeWorkspaceId, attachArtifact } = useWorkspaceStore();
   const { addContract } = useContractStore();
 
@@ -59,7 +165,7 @@ export default function WasmRegistryPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [wasmName, setWasmName] = useState("");
   const [deployingHash, setDeployingHash] = useState<string | null>(null);
-
+  const [expandedHash, setExpandedHash] = useState<string | null>(null);
   const [previewFunctions, setPreviewFunctions] = useState<string[]>([]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -67,14 +173,9 @@ export default function WasmRegistryPage() {
       const selected = e.target.files[0];
       setFile(selected);
 
-      // Local-First Inspection logic
       const arrayBuffer = await selected.arrayBuffer();
       const functions = await parseWasmMetadata(Buffer.from(arrayBuffer));
-      const spec = createNormalizedContractSpecFromFunctionNames(
-        functions,
-        "wasm",
-        selected.name,
-      );
+      const spec = createNormalizedContractSpecFromFunctionNames(functions, "wasm", selected.name);
       setPreviewFunctions(spec.functions.map((entry) => entry.name));
 
       if (!wasmName) setWasmName(selected.name.replace(".wasm", ""));
@@ -87,7 +188,7 @@ export default function WasmRegistryPage() {
 
     try {
       const network = getActiveNetworkConfig();
-      const server = new SorobanServer(network.rpcUrl); // Fixed
+      const server = new SorobanServer(network.rpcUrl);
       const arrayBuffer = await file.arrayBuffer();
       const wasmBuffer = Buffer.from(arrayBuffer);
 
@@ -105,16 +206,11 @@ export default function WasmRegistryPage() {
         networkPassphrase: network.networkPassphrase,
       });
 
-      // Fixed: Removed 'new' keyword
       const res = await server.sendTransaction(
-        TransactionBuilder.fromXDR(
-          signedXdr.signedTxXdr,
-          network.networkPassphrase,
-        ),
+        TransactionBuilder.fromXDR(signedXdr.signedTxXdr, network.networkPassphrase),
       );
 
-      if (res.status !== "PENDING")
-        throw new Error(`Upload failed: ${res.status}`);
+      if (res.status !== "PENDING") throw new Error(`Upload failed: ${res.status}`);
 
       const wasmHash = hash(wasmBuffer).toString("hex");
 
@@ -146,7 +242,7 @@ export default function WasmRegistryPage() {
 
     try {
       const network = getActiveNetworkConfig();
-      const server = new SorobanServer(network.rpcUrl); // Fixed
+      const server = new SorobanServer(network.rpcUrl);
       const sourceAccount = await server.getAccount(address);
 
       const tx = new TransactionBuilder(sourceAccount, {
@@ -168,24 +264,26 @@ export default function WasmRegistryPage() {
         networkPassphrase: network.networkPassphrase,
       });
 
-      // Fixed: Removed 'new' keyword
       const res = await server.sendTransaction(
-        TransactionBuilder.fromXDR(
-          signedXdr.signedTxXdr,
-          network.networkPassphrase,
-        ),
+        TransactionBuilder.fromXDR(signedXdr.signedTxXdr, network.networkPassphrase),
       );
 
       if (res.status !== "PENDING") throw new Error("Deploy submission failed");
 
-      // Poll for result
       let attempts = 0;
       while (attempts < 10) {
         await new Promise((r) => setTimeout(r, 2000));
         const status = await server.getTransaction(res.hash);
         if (status.status === "SUCCESS") {
+          // SC-003/SC-004: record as inferred until source-registry confirms
+          associateContract(wasmHash, res.hash, "inferred");
+          attachArtifact(activeWorkspaceId, {
+            kind: "wasm",
+            id: wasmHash,
+            contractId: res.hash,
+            relationship: "inferred",
+          });
           toast.success("Contract Instantiated Successfully!");
-          associateContract(wasmHash, res.hash);
           break;
         }
         attempts++;
@@ -198,22 +296,36 @@ export default function WasmRegistryPage() {
     }
   };
 
+  // SC-004: called after successful source-registry registration
+  const handleSourceVerified = (wasmHash: string, contractId: string) => {
+    const network = getActiveNetworkConfig();
+    addProvenanceNode({
+      wasmHash,
+      contractId,
+      relationship: "confirmed",
+      network: network.id,
+      deployedAt: Date.now(),
+    });
+    attachArtifact(activeWorkspaceId, {
+      kind: "wasm",
+      id: wasmHash,
+      contractId,
+      relationship: "confirmed",
+    });
+  };
+
   return (
     <div className="container mx-auto space-y-8 p-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">WASM Registry</h1>
-        <p className="text-muted-foreground">
-          Upload, manage, and deploy contract code.
-        </p>
+        <p className="text-muted-foreground">Upload, manage, and deploy contract code.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <Card className="h-fit lg:col-span-1">
           <CardHeader>
             <CardTitle>Install New Code</CardTitle>
-            <CardDescription>
-              Upload a .wasm file to the ledger.
-            </CardDescription>
+            <CardDescription>Upload a .wasm file to the ledger.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid w-full items-center gap-1.5">
@@ -263,83 +375,112 @@ export default function WasmRegistryPage() {
               <TableBody>
                 {wasms.length === 0 ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={5}
-                      className="h-24 text-center text-muted-foreground"
-                    >
+                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
                       No WASM code uploaded yet.
                     </TableCell>
                   </TableRow>
                 ) : (
                   wasms.map((entry) => (
-                    <TableRow key={entry.hash}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          <FileCode className="h-4 w-4 text-blue-500" />
-                          {entry.name}
-                          {entry.parseError && (
-                            <Badge variant="destructive" className="text-[10px]">parse error</Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">
-                        {entry.hash.slice(0, 12)}...{entry.hash.slice(-12)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-[10px]">{entry.network}</Badge>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {entry.deployedContractId ? (
-                          <span className="font-mono">{entry.deployedContractId.slice(0, 10)}…</span>
-                        ) : (
-                          <span className="italic">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => handleDeploy(entry.hash)}
-                            disabled={!!deployingHash}
-                          >
-                            {deployingHash === entry.hash ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Play className="mr-1 h-3 w-3" />
+                    <>
+                      <TableRow
+                        key={entry.hash}
+                        className="cursor-pointer"
+                        onClick={() =>
+                          setExpandedHash(expandedHash === entry.hash ? null : entry.hash)
+                        }
+                      >
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <FileCode className="h-4 w-4 text-blue-500" />
+                            {entry.name}
+                            {entry.parseError && (
+                              <Badge variant="destructive" className="text-[10px]">
+                                parse error
+                              </Badge>
                             )}
-                            Deploy
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() =>
-                              navigator.clipboard.writeText(entry.hash)
-                            }
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="text-red-500 hover:text-red-600"
-                            onClick={() => removeWasm(entry.hash)}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                            <VerificationBadge entry={entry} />
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
+                          {entry.hash.slice(0, 12)}...{entry.hash.slice(-12)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-[10px]">
+                            {entry.network}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {entry.deployedContractId ? (
+                            <span className="font-mono">
+                              {entry.deployedContractId.slice(0, 10)}…
+                            </span>
+                          ) : (
+                            <span className="italic">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeploy(entry.hash);
+                              }}
+                              disabled={!!deployingHash}
+                            >
+                              {deployingHash === entry.hash ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Play className="mr-1 h-3 w-3" />
+                              )}
+                              Deploy
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(entry.hash);
+                              }}
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="text-red-500 hover:text-red-600"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeWasm(entry.hash);
+                              }}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {expandedHash === entry.hash && (
+                        <TableRow key={`${entry.hash}-detail`}>
+                          <TableCell colSpan={5} className="bg-muted/20 pb-3 pt-0">
+                            <ProvenancePanel nodes={entry.provenance ?? []} />
+                            <VerifySourcePanel
+                              entry={entry}
+                              onVerified={(contractId) =>
+                                handleSourceVerified(entry.hash, contractId)
+                              }
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </>
                   ))
                 )}
               </TableBody>
             </Table>
-            {/* WASM Preview Card */}
             {file && (
               <div className="space-y-2 rounded-md border bg-muted/50 p-3">
-                <Label className="text-[10px] font-bold uppercase">
-                  WASM Preview
-                </Label>
+                <Label className="text-[10px] font-bold uppercase">WASM Preview</Label>
                 <div className="flex flex-wrap gap-1">
                   {previewFunctions.map((fn) => (
                     <Badge key={fn} variant="secondary" className="text-[10px]">

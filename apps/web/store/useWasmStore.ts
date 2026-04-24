@@ -1,6 +1,23 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+// ── Provenance ────────────────────────────────────────────────────────────────
+
+export type ProvenanceRelationship = "inferred" | "confirmed";
+
+export interface ProvenanceNode {
+  /** The WASM hash this node belongs to */
+  wasmHash: string;
+  /** Contract instance ID produced by deploying this WASM */
+  contractId: string;
+  /** How the link was established */
+  relationship: ProvenanceRelationship;
+  network: string;
+  deployedAt: number;
+}
+
+// ── WASM entry ────────────────────────────────────────────────────────────────
+
 export interface WasmEntry {
   hash: string;
   name: string;
@@ -14,23 +31,30 @@ export interface WasmEntry {
   workspaceId?: string;
   /** Whether the last parse attempt failed */
   parseError?: boolean;
+  /** SC-003: Provenance nodes linking this WASM to deployed contract instances */
+  provenance?: ProvenanceNode[];
 }
+
+// ── Store ─────────────────────────────────────────────────────────────────────
 
 interface WasmState {
   wasms: WasmEntry[];
   addWasm: (entry: WasmEntry) => void;
   removeWasm: (hash: string) => void;
-  associateContract: (hash: string, contractId: string) => void;
+  associateContract: (hash: string, contractId: string, relationship?: ProvenanceRelationship) => void;
+  /** SC-003: Add a provenance node to a WASM entry */
+  addProvenanceNode: (node: ProvenanceNode) => void;
+  /** SC-003: Get all provenance nodes for a given WASM hash */
+  getProvenance: (hash: string) => ProvenanceNode[];
 }
 
 export const useWasmStore = create<WasmState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       wasms: [],
 
       addWasm: (entry) =>
         set((state) => {
-          // Gracefully handle duplicate uploads — update metadata instead of duplicating
           const existing = state.wasms.find((w) => w.hash === entry.hash);
           if (existing) {
             return {
@@ -49,14 +73,38 @@ export const useWasmStore = create<WasmState>()(
           wasms: state.wasms.filter((w) => w.hash !== hash),
         })),
 
-      associateContract: (hash, contractId) =>
+      associateContract: (hash, contractId, relationship = "confirmed") =>
+        set((state) => ({
+          wasms: state.wasms.map((w) => {
+            if (w.hash !== hash) return w;
+            const now = Date.now();
+            const network = w.network;
+            const node: ProvenanceNode = { wasmHash: hash, contractId, relationship, network, deployedAt: now };
+            return {
+              ...w,
+              deployedContractId: contractId,
+              deployedAt: now,
+              provenance: [...(w.provenance ?? []).filter((p) => p.contractId !== contractId), node],
+            };
+          }),
+        })),
+
+      addProvenanceNode: (node) =>
         set((state) => ({
           wasms: state.wasms.map((w) =>
-            w.hash === hash
-              ? { ...w, deployedContractId: contractId, deployedAt: Date.now() }
+            w.hash === node.wasmHash
+              ? {
+                  ...w,
+                  provenance: [...(w.provenance ?? []).filter((p) => p.contractId !== node.contractId), node],
+                }
               : w,
           ),
         })),
+
+      getProvenance: (hash) => {
+        const entry = get().wasms.find((w) => w.hash === hash);
+        return entry?.provenance ?? [];
+      },
     }),
     { name: "soroban-wasm-storage" },
   ),
