@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "id": "test-workspace-v2",
+  "name": "Test Workspace v2",
+  "contractIds": [
+    "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+  ],
+  "savedCallIds": [
+    "saved-call-001"
+  ],
+  "artifactRefs": [
+    {
+      "kind": "wasm",
+      "id": "artifact-001",
+      "contractId": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+      "relationship": "confirmed"
+    }
+  ],
+  "selectedNetwork": "testnet",
+  "createdAt": 1713916800000,
+  "updatedAt": 1713916800000
+}
