@@ -1,20 +1,20 @@
 "use client";
 
-import { signTransaction } from "@stellar/freighter-api";
 import {
   Contract,
   TimeoutInfinite,
   TransactionBuilder,
   rpc as SorobanRpc,
 } from "@stellar/stellar-sdk";
+import { Server as SorobanServer } from "@stellar/stellar-sdk/rpc";
 import { Loader2, Send, Terminal } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { orchestrateTx, simulateTx, type TxStatus } from "@/lib/tx-orchestrator";
 
 import { MultiOpCart } from "@/components/multi-op-cart";
 import {
   convertToScVal,
-  normalizeSimulationResult,
   type NormalizedSimulationResult,
 } from "@devconsole/soroban-utils";
 import { useNetworkStore } from "@/store/useNetworkStore";
@@ -95,6 +95,27 @@ export default function TxBuilderPage() {
       return contract.call(item.fnName, ...scArgs);
     });
 
+  /** Build a raw transaction XDR from the current cart items. */
+  const buildTxXdr = async (source: string): Promise<string> => {
+    const network = getActiveNetworkConfig();
+    const server = new SorobanServer(network.rpcUrl);
+    const operations = buildOperations();
+
+    const account = await server.getAccount(source).catch(() => null);
+    const sequence = account ? account.sequenceNumber() : "0";
+
+    const txBuilder = new TransactionBuilder(
+      {
+        accountId: () => source,
+        sequenceNumber: () => sequence,
+        incrementSequenceNumber: () => {},
+      },
+      { fee: "100", networkPassphrase: network.networkPassphrase },
+    );
+    operations.forEach((op) => txBuilder.addOperation(op));
+    return txBuilder.setTimeout(TimeoutInfinite).build().toXDR();
+  };
+
   const handleSimulate = async () => {
     if (cartItems.length < 2) {
       toast.error("Add at least two calls to build a multi-operation transaction.");
@@ -111,31 +132,14 @@ export default function TxBuilderPage() {
 
     try {
       const network = getActiveNetworkConfig();
-      const server = new SorobanRpc.Server(network.rpcUrl);
-      const operations = buildOperations();
-
       const source =
         address || "GBZXN7PIRZGNMHGA7MUUUFFAUYVSF74BWXME4R37P2N6F5N4AUM5546F";
-      const account = await server.getAccount(source).catch(() => null);
-      const sequence = account ? account.sequenceNumber() : "0";
-
-      const txBuilder = new TransactionBuilder(
-        {
-          accountId: () => source,
-          sequenceNumber: () => sequence,
-          incrementSequenceNumber: () => {},
-        },
-        { fee: "100", networkPassphrase: network.networkPassphrase },
-      );
-
-      operations.forEach((op) => txBuilder.addOperation(op));
-      const tx = txBuilder.setTimeout(TimeoutInfinite).build();
-
-      const sim = await server.simulateTransaction(tx);
-      const normalized = normalizeSimulationResult(sim);
+      const txXdr = await buildTxXdr(source);
+      // FE-040: use shared orchestration layer for simulation
+      const normalized = await simulateTx(txXdr, network);
       if (!normalized.ok) throw new Error(normalized.error || "Unknown simulation error");
 
-      setSimulation({ operationCount: operations.length, details: normalized });
+      setSimulation({ operationCount: cartItems.length, details: normalized });
       setResult("Simulation success for batched transaction.");
       toast.success("Simulation success");
     } catch (error: any) {
@@ -166,40 +170,32 @@ export default function TxBuilderPage() {
 
     try {
       const network = getActiveNetworkConfig();
-      const server = new SorobanRpc.Server(network.rpcUrl);
-      const operations = buildOperations();
-
+      const server = new SorobanServer(network.rpcUrl);
       const sourceAccount = await server.getAccount(address);
       const txBuilder = new TransactionBuilder(sourceAccount, {
         fee: "100",
         networkPassphrase: network.networkPassphrase,
       });
-      operations.forEach((op) => txBuilder.addOperation(op));
+      buildOperations().forEach((op) => txBuilder.addOperation(op));
+      const txXdr = txBuilder.setTimeout(TimeoutInfinite).build().toXDR();
 
-      const tx = txBuilder.setTimeout(TimeoutInfinite).build();
-      const sim = await server.simulateTransaction(tx);
-      const normalized = normalizeSimulationResult(sim);
-      if (!normalized.ok) {
-        throw new Error(`Pre-flight simulation failed: ${normalized.error || "Unknown"}`);
-      }
-
-      setSimulation({ operationCount: operations.length, details: normalized });
-
-      const preparedTx = SorobanRpc.assembleTransaction(tx, sim).build();
-      const signedResult = await signTransaction(preparedTx.toXDR(), {
-        networkPassphrase: network.networkPassphrase,
+      // FE-040: use shared orchestration layer for sign + submit + poll
+      const txResult = await orchestrateTx(txXdr, network, {}, (status: TxStatus) => {
+        if (status === "awaiting-signature") toast.info("Awaiting wallet signature…");
+        if (status === "submitting") toast.info("Submitting transaction…");
+        if (status === "polling") toast.info("Waiting for confirmation…");
       });
 
-      const sendResult = await server.sendTransaction(
-        TransactionBuilder.fromXDR(signedResult.signedTxXdr, network.networkPassphrase),
-      );
-
-      if (sendResult.status !== "PENDING") {
-        throw new Error(`Submission failed: ${sendResult.status}`);
+      if (txResult.simulation) {
+        setSimulation({ operationCount: cartItems.length, details: txResult.simulation });
       }
 
-      setResult(`Transaction submitted. Hash: ${sendResult.hash}`);
-      toast.success("Multi-operation transaction submitted.");
+      if (txResult.status === "success") {
+        setResult(`Transaction submitted. Hash: ${txResult.hash}`);
+        toast.success("Multi-operation transaction submitted.");
+      } else {
+        throw new Error(txResult.errorMessage ?? "Transaction failed");
+      }
     } catch (error: any) {
       setResult(`Submission failed: ${error.message}`);
       toast.error(`Submission failed: ${error.message}`);

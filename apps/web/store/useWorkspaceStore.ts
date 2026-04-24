@@ -8,6 +8,7 @@ import type {
 } from "./workspace-schema";
 import { STORE_SCHEMA_VERSION } from "./schema-version";
 import { workspacesApi } from "@/lib/api/workspaces";
+import { useSyncQueueStore } from "./useSyncQueueStore";
 import type { CreateWorkspacePayload, UpdateWorkspacePayload } from "@devconsole/api-contracts";
 import type { WorkspaceTemplate } from "@/lib/fixture-manifest";
 
@@ -392,6 +393,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           return remote.id;
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Sync failed";
+          // FE-038: queue the mutation for retry when offline/transient failure
+          const activeId = get().activeWorkspaceId;
+          useSyncQueueStore.getState().enqueue({
+            kind: "create",
+            localId: activeId,
+            payload,
+          });
           set({ syncState: "error", syncError: msg });
           return null;
         }
@@ -444,6 +452,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         } catch (err) {
           const isConflict = err instanceof Error && err.message.includes("revision");
           const msg = err instanceof Error ? err.message : "Push failed";
+          // FE-038: queue the update mutation for retry
+          if (!isConflict) {
+            useSyncQueueStore.getState().enqueue({
+              kind: "update",
+              localId,
+              cloudId,
+              payload,
+            });
+          }
           set({ syncState: isConflict ? "conflict" : "error", syncError: msg });
           return false;
         }

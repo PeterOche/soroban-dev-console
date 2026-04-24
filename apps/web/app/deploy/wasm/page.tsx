@@ -14,7 +14,7 @@ import {
   Address,
 } from "@stellar/stellar-sdk";
 import { Server as SorobanServer } from "@stellar/stellar-sdk/rpc";
-import { signTransaction } from "@stellar/freighter-api";
+import { orchestrateTx } from "@/lib/tx-orchestrator";
 import {
   UploadCloud,
   FileCode,
@@ -201,16 +201,12 @@ export default function WasmRegistryPage() {
         .setTimeout(TimeoutInfinite)
         .build();
 
-      const preparedTx = await server.prepareTransaction(tx);
-      const signedXdr = await signTransaction(preparedTx.toXDR(), {
-        networkPassphrase: network.networkPassphrase,
-      });
+      // FE-040: use shared orchestration layer for sign + submit + poll
+      const txResult = await orchestrateTx(tx.toXDR(), network);
 
-      const res = await server.sendTransaction(
-        TransactionBuilder.fromXDR(signedXdr.signedTxXdr, network.networkPassphrase),
-      );
-
-      if (res.status !== "PENDING") throw new Error(`Upload failed: ${res.status}`);
+      if (txResult.status !== "success") {
+        throw new Error(txResult.errorMessage ?? "Upload failed");
+      }
 
       const wasmHash = hash(wasmBuffer).toString("hex");
 
@@ -259,34 +255,21 @@ export default function WasmRegistryPage() {
         .setTimeout(TimeoutInfinite)
         .build();
 
-      const preparedTx = await server.prepareTransaction(tx);
-      const signedXdr = await signTransaction(preparedTx.toXDR(), {
-        networkPassphrase: network.networkPassphrase,
-      });
+      // FE-040: use shared orchestration layer for sign + submit + poll
+      const txResult = await orchestrateTx(tx.toXDR(), network);
 
-      const res = await server.sendTransaction(
-        TransactionBuilder.fromXDR(signedXdr.signedTxXdr, network.networkPassphrase),
-      );
-
-      if (res.status !== "PENDING") throw new Error("Deploy submission failed");
-
-      let attempts = 0;
-      while (attempts < 10) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const status = await server.getTransaction(res.hash);
-        if (status.status === "SUCCESS") {
-          // SC-003/SC-004: record as inferred until source-registry confirms
-          associateContract(wasmHash, res.hash, "inferred");
-          attachArtifact(activeWorkspaceId, {
-            kind: "wasm",
-            id: wasmHash,
-            contractId: res.hash,
-            relationship: "inferred",
-          });
-          toast.success("Contract Instantiated Successfully!");
-          break;
-        }
-        attempts++;
+      if (txResult.status === "success" && txResult.hash) {
+        // SC-003/SC-004: record as inferred until source-registry confirms
+        associateContract(wasmHash, txResult.hash, "inferred");
+        attachArtifact(activeWorkspaceId, {
+          kind: "wasm",
+          id: wasmHash,
+          contractId: txResult.hash,
+          relationship: "inferred",
+        });
+        toast.success("Contract Instantiated Successfully!");
+      } else {
+        throw new Error(txResult.errorMessage ?? "Deploy failed");
       }
     } catch (e: any) {
       console.error(e);

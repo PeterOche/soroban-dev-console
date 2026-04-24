@@ -26,6 +26,8 @@ import {
   Share2,
   Copy,
   Check,
+  ShieldAlert,
+  Package,
   Trash2,
   ExternalLink,
   RefreshCw,
@@ -41,6 +43,17 @@ import {
   importWorkspace,
 } from "@/lib/workspace-serializer";
 import { sharesApi } from "@/lib/api/workspaces";
+import {
+  scanAllStores,
+  buildSalvageExport,
+  safeReadLocalStorage,
+} from "@/lib/state-repair";
+import {
+  generateSupportBundle,
+  downloadSupportBundle,
+} from "@/lib/support-bundle";
+import { useNetworkStore } from "@/store/useNetworkStore";
+import { STORE_SCHEMA_VERSION } from "@/store/schema-version";
 import type { ShareSummary } from "@devconsole/api-contracts";
 
 // The keys defined in your Zustand 'persist' middleware options
@@ -299,10 +312,19 @@ function ShareManagement({ workspaceCloudId }: { workspaceCloudId: string | null
 
 export function DataManagement() {
   const [isImporting, setIsImporting] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [isGeneratingBundle, setIsGeneratingBundle] = useState(false);
+
+  // FE-037: recovery state
+  const [corruptionSummary, setCorruptionSummary] = useState<string | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
 
   const { getActiveWorkspace, syncToCloud, cloudId } = useWorkspaceStore();
   const { contracts } = useContractStore();
   const { savedCalls } = useSavedCallsStore();
+  const { getActiveNetworkConfig } = useNetworkStore();
 
   const handleExport = () => {
     try {
@@ -418,6 +440,132 @@ export function DataManagement() {
     reader.readAsText(file);
   };
 
+  // FE-014: create a shareable read-only link
+  const handleShare = async () => {
+    const workspace = getActiveWorkspace();
+    if (!workspace) {
+      toast.error("No active workspace to share");
+      return;
+    }
+
+    setIsSharing(true);
+    try {
+      let workspaceCloudId = cloudId;
+
+      // Sync to cloud first if not yet synced
+      if (!workspaceCloudId) {
+        const contractRefs = contracts
+          .filter((c) => workspace.contractIds.includes(c.id))
+          .map((c) => ({ contractId: c.id, network: c.network }));
+        const interactionRefs = savedCalls
+          .filter((c) => workspace.savedCallIds.includes(c.id))
+          .map((c) => ({ functionName: c.fnName, argumentsJson: c.args }));
+
+        const shareId = await syncToCloud({
+          name: workspace.name,
+          contracts: contractRefs,
+          interactions: interactionRefs,
+        });
+
+        if (!shareId) throw new Error("Failed to sync workspace to cloud");
+        workspaceCloudId = shareId;
+      }
+
+      const snapshot = serializeWorkspace(workspace, contracts, savedCalls);
+      const link = await sharesApi.create({
+        workspaceId: workspaceCloudId,
+        snapshotJson: snapshot,
+        label: workspace.name,
+      });
+
+      const url = `${window.location.origin}/share/${link.token}`;
+      setShareUrl(url);
+    } catch (err) {
+      console.error(err);
+      toast.error(
+        `Share failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!shareUrl) return;
+    await navigator.clipboard.writeText(shareUrl);
+    setIsCopied(true);
+    toast.success("Link copied to clipboard");
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  // FE-037: scan all stores for corruption and offer salvage export
+  const handleRecoveryScan = () => {
+    setIsScanning(true);
+    try {
+      const reports = scanAllStores();
+      const corrupted = Object.entries(reports).filter(([, r]) => r.isCorrupted);
+
+      if (corrupted.length === 0) {
+        setCorruptionSummary(null);
+        toast.success("All stores are healthy — no corruption detected.");
+        return;
+      }
+
+      const summary = corrupted
+        .map(([label, r]) => `${label}: ${r.reasons.join("; ")}`)
+        .join("\n");
+      setCorruptionSummary(summary);
+      toast.warning(`Corruption detected in ${corrupted.length} store(s). See details below.`);
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  const handleSalvageExport = () => {
+    try {
+      const reports = scanAllStores();
+      const allSalvageable = Object.values(reports).flatMap(
+        (r) => r.salvageableWorkspaces,
+      );
+      const rawContracts = (safeReadLocalStorage(STORAGE_KEYS.CONTRACTS) as any)?.state
+        ?.contracts;
+      const rawSavedCalls = (safeReadLocalStorage(STORAGE_KEYS.SAVED_CALLS) as any)?.state
+        ?.savedCalls;
+
+      const json = buildSalvageExport(allSalvageable, rawContracts, rawSavedCalls);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `salvage-export-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Salvage export downloaded.");
+    } catch (err) {
+      toast.error(`Salvage export failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+    }
+  };
+
+  // FE-039: generate and download a support bundle
+  const handleSupportBundle = async () => {
+    setIsGeneratingBundle(true);
+    try {
+      const workspace = getActiveWorkspace();
+      const network = getActiveNetworkConfig();
+      const bundle = generateSupportBundle(workspace, savedCalls, network, STORE_SCHEMA_VERSION);
+      downloadSupportBundle(bundle);
+      toast.success("Support bundle downloaded.");
+    } catch (err) {
+      toast.error(
+        `Bundle generation failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsGeneratingBundle(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Export / Import */}
@@ -495,6 +643,82 @@ export function DataManagement() {
         </CardContent>
       </Card>
 
+        {/* FE-039: Support Bundle */}
+        <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2">
+            <Package className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium">Support Bundle</p>
+              <p className="text-xs text-muted-foreground">
+                Download a redacted snapshot of workspace, calls, and environment for debugging.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleSupportBundle}
+            disabled={isGeneratingBundle}
+            className="shrink-0"
+          >
+            {isGeneratingBundle ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            Generate Bundle
+          </Button>
+        </div>
+
+        {/* FE-037: Recovery Tooling */}
+        <div className="rounded-md border p-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-yellow-500" />
+            <div className="flex-1">
+              <p className="text-sm font-medium">State Recovery</p>
+              <p className="text-xs text-muted-foreground">
+                Scan local stores for corruption. Export salvageable data before resetting.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRecoveryScan}
+              disabled={isScanning}
+            >
+              {isScanning ? (
+                <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+              ) : (
+                <ShieldAlert className="mr-2 h-3 w-3" />
+              )}
+              Scan for Corruption
+            </Button>
+            {corruptionSummary && (
+              <Button size="sm" variant="outline" onClick={handleSalvageExport}>
+                <Download className="mr-2 h-3 w-3" />
+                Export Salvageable Data
+              </Button>
+            )}
+          </div>
+          {corruptionSummary && (
+            <pre className="mt-1 rounded bg-red-50 p-2 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-300 whitespace-pre-wrap">
+              {corruptionSummary}
+            </pre>
+          )}
+        </div>
+
+        <div className="flex items-start gap-3 rounded-md bg-yellow-50 p-3 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <p>
+            <strong>Warning:</strong> Importing data will{" "}
+            <strong>overwrite</strong> your current contracts, saved calls, and
+            custom networks. This action cannot be undone.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
       {/* FE-028: Share link management */}
       <ShareManagement workspaceCloudId={cloudId} />
     </div>
