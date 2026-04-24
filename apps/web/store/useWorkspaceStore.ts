@@ -3,12 +3,14 @@ import { persist } from "zustand/middleware";
 import { useNetworkStore } from "./useNetworkStore";
 import type {
   WorkspaceArtifactRef,
+  WorkspaceCheckpoint,
   WorkspaceSnapshot,
 } from "./workspace-schema";
 import { STORE_SCHEMA_VERSION } from "./schema-version";
 import { workspacesApi } from "@/lib/api/workspaces";
 import { useSyncQueueStore } from "./useSyncQueueStore";
 import type { CreateWorkspacePayload, UpdateWorkspacePayload } from "@devconsole/api-contracts";
+import type { WorkspaceTemplate } from "@/lib/fixture-manifest";
 
 type LegacyWorkspace = {
   id: string;
@@ -20,6 +22,24 @@ type LegacyWorkspace = {
 
 export type SyncState = "idle" | "syncing" | "error" | "conflict";
 
+/** FE-029: Describes a single field-level difference between local and remote workspace. */
+export interface WorkspaceDiff {
+  field: keyof WorkspaceSnapshot;
+  local: unknown;
+  remote: unknown;
+}
+
+/** FE-029: Result of a conflict check between local and remote workspace state. */
+export interface ConflictResult {
+  hasConflict: boolean;
+  diffs: WorkspaceDiff[];
+  localRevision: number;
+  remoteRevision: number;
+}
+
+/** FE-029: Strategy for resolving a detected conflict. */
+export type MergeStrategy = "keep-local" | "keep-remote" | "merge-additive";
+
 interface WorkspaceState {
   workspaces: WorkspaceSnapshot[];
   activeWorkspaceId: string;
@@ -27,8 +47,14 @@ interface WorkspaceState {
   cloudId: string | null;
   syncState: SyncState;
   syncError: string | null;
+  /** FE-031: Named checkpoints keyed by workspaceId */
+  checkpoints: Record<string, WorkspaceCheckpoint[]>;
+  /** FE-029: Pending conflict data awaiting user resolution */
+  pendingConflict: (ConflictResult & { remoteSnapshot: WorkspaceSnapshot }) | null;
 
   createWorkspace: (name: string, selectedNetwork?: string) => void;
+  /** FE-032: Create a workspace pre-populated from a template */
+  createWorkspaceFromTemplate: (template: WorkspaceTemplate, selectedNetwork?: string) => void;
   setActiveWorkspace: (id: string) => void;
   addContractToWorkspace: (workspaceId: string, contractId: string) => void;
   attachArtifact: (workspaceId: string, artifact: WorkspaceArtifactRef) => void;
@@ -47,6 +73,20 @@ interface WorkspaceState {
   removeFromCloud: (cloudId: string) => Promise<boolean>;
   /** Clear any sync error */
   clearSyncError: () => void;
+  /** FE-031: Save a named checkpoint for a workspace */
+  saveCheckpoint: (workspaceId: string, label: string) => WorkspaceCheckpoint | null;
+  /** FE-031: Restore a workspace to a previously saved checkpoint */
+  restoreCheckpoint: (checkpointId: string, workspaceId: string) => boolean;
+  /** FE-031: Delete a checkpoint */
+  deleteCheckpoint: (checkpointId: string, workspaceId: string) => void;
+  /** FE-031: Get all checkpoints for a workspace */
+  getCheckpoints: (workspaceId: string) => WorkspaceCheckpoint[];
+  /** FE-029: Detect conflicts between local workspace and a remote snapshot */
+  detectConflict: (localId: string, remote: WorkspaceSnapshot, remoteRevision: number, localRevision: number) => ConflictResult;
+  /** FE-029: Resolve a pending conflict using the chosen strategy */
+  resolveConflict: (strategy: MergeStrategy) => void;
+  /** FE-029: Dismiss the pending conflict without resolving */
+  dismissConflict: () => void;
 }
 
 function createWorkspaceSnapshot(
@@ -54,7 +94,6 @@ function createWorkspaceSnapshot(
   selectedNetwork = "testnet",
 ): WorkspaceSnapshot {
   const now = Date.now();
-
   return {
     version: STORE_SCHEMA_VERSION,
     id: crypto.randomUUID(),
@@ -80,6 +119,42 @@ const defaultWorkspace: WorkspaceSnapshot = {
   updatedAt: Date.now(),
 };
 
+/** FE-029: Compare two workspace snapshots and return field-level diffs. */
+function diffWorkspaces(local: WorkspaceSnapshot, remote: WorkspaceSnapshot): WorkspaceDiff[] {
+  const fields: (keyof WorkspaceSnapshot)[] = [
+    "name",
+    "selectedNetwork",
+    "contractIds",
+    "savedCallIds",
+    "artifactRefs",
+  ];
+  const diffs: WorkspaceDiff[] = [];
+  for (const field of fields) {
+    const localVal = local[field];
+    const remoteVal = remote[field];
+    if (JSON.stringify(localVal) !== JSON.stringify(remoteVal)) {
+      diffs.push({ field, local: localVal, remote: remoteVal });
+    }
+  }
+  return diffs;
+}
+
+/** FE-029: Merge two snapshots additively (union of arrays, remote wins on scalars). */
+function mergeAdditive(local: WorkspaceSnapshot, remote: WorkspaceSnapshot): WorkspaceSnapshot {
+  return {
+    ...remote,
+    contractIds: [...new Set([...local.contractIds, ...remote.contractIds])],
+    savedCallIds: [...new Set([...local.savedCallIds, ...remote.savedCallIds])],
+    artifactRefs: [
+      ...remote.artifactRefs,
+      ...local.artifactRefs.filter(
+        (la) => !remote.artifactRefs.some((ra) => ra.kind === la.kind && ra.id === la.id),
+      ),
+    ],
+    updatedAt: Date.now(),
+  };
+}
+
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set, get) => ({
@@ -88,6 +163,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       cloudId: null,
       syncState: "idle" as const,
       syncError: null,
+      checkpoints: {},
+      pendingConflict: null,
 
       createWorkspace: (name, selectedNetwork = useNetworkStore.getState().currentNetwork) =>
         set((state) => ({
@@ -97,12 +174,28 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           ],
         })),
 
+      // FE-032: Create workspace from a template
+      createWorkspaceFromTemplate: (template, selectedNetwork = useNetworkStore.getState().currentNetwork) => {
+        const now = Date.now();
+        const snapshot: WorkspaceSnapshot = {
+          version: STORE_SCHEMA_VERSION,
+          id: crypto.randomUUID(),
+          name: template.name,
+          contractIds: template.contractIds ?? [],
+          savedCallIds: template.savedCallIds ?? [],
+          artifactRefs: template.artifactRefs ?? [],
+          selectedNetwork: template.defaultNetwork ?? selectedNetwork,
+          createdAt: now,
+          updatedAt: now,
+        };
+        set((state) => ({ workspaces: [...state.workspaces, snapshot] }));
+      },
+
       setActiveWorkspace: (id) => {
         const target = get().workspaces.find((workspace) => workspace.id === id);
         if (target) {
           useNetworkStore.getState().setNetwork(target.selectedNetwork);
         }
-
         set({ activeWorkspaceId: id });
       },
 
@@ -194,6 +287,103 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               ? "default"
               : state.activeWorkspaceId,
         })),
+
+      // ── FE-031: Checkpoints ──────────────────────────────────────────────────
+
+      saveCheckpoint: (workspaceId, label) => {
+        const workspace = get().workspaces.find((w) => w.id === workspaceId);
+        if (!workspace) return null;
+        const checkpoint: WorkspaceCheckpoint = {
+          id: crypto.randomUUID(),
+          workspaceId,
+          label,
+          snapshot: { ...workspace },
+          createdAt: Date.now(),
+        };
+        set((state) => ({
+          checkpoints: {
+            ...state.checkpoints,
+            [workspaceId]: [...(state.checkpoints[workspaceId] ?? []), checkpoint],
+          },
+        }));
+        return checkpoint;
+      },
+
+      restoreCheckpoint: (checkpointId, workspaceId) => {
+        const checkpoints = get().checkpoints[workspaceId] ?? [];
+        const cp = checkpoints.find((c) => c.id === checkpointId);
+        if (!cp) return false;
+        set((state) => ({
+          workspaces: state.workspaces.map((w) =>
+            w.id === workspaceId
+              ? { ...cp.snapshot, updatedAt: Date.now() }
+              : w,
+          ),
+        }));
+        return true;
+      },
+
+      deleteCheckpoint: (checkpointId, workspaceId) =>
+        set((state) => ({
+          checkpoints: {
+            ...state.checkpoints,
+            [workspaceId]: (state.checkpoints[workspaceId] ?? []).filter(
+              (c) => c.id !== checkpointId,
+            ),
+          },
+        })),
+
+      getCheckpoints: (workspaceId) =>
+        get().checkpoints[workspaceId] ?? [],
+
+      // ── FE-029: Conflict detection & merge ──────────────────────────────────
+
+      detectConflict: (localId, remote, remoteRevision, localRevision) => {
+        const local = get().workspaces.find((w) => w.id === localId);
+        if (!local) {
+          return { hasConflict: false, diffs: [], localRevision, remoteRevision };
+        }
+        const diffs = diffWorkspaces(local, remote);
+        const hasConflict = diffs.length > 0 && remoteRevision !== localRevision;
+        if (hasConflict) {
+          set({ pendingConflict: { hasConflict, diffs, localRevision, remoteRevision, remoteSnapshot: remote } });
+        }
+        return { hasConflict, diffs, localRevision, remoteRevision };
+      },
+
+      resolveConflict: (strategy) => {
+        const { pendingConflict, activeWorkspaceId } = get();
+        if (!pendingConflict) return;
+        const local = get().workspaces.find((w) => w.id === activeWorkspaceId);
+        if (!local) {
+          set({ pendingConflict: null, syncState: "idle" });
+          return;
+        }
+        let resolved: WorkspaceSnapshot;
+        switch (strategy) {
+          case "keep-local":
+            resolved = { ...local, updatedAt: Date.now() };
+            break;
+          case "keep-remote":
+            resolved = { ...pendingConflict.remoteSnapshot, updatedAt: Date.now() };
+            break;
+          case "merge-additive":
+            resolved = mergeAdditive(local, pendingConflict.remoteSnapshot);
+            break;
+        }
+        set((state) => ({
+          workspaces: state.workspaces.map((w) =>
+            w.id === activeWorkspaceId ? resolved : w,
+          ),
+          pendingConflict: null,
+          syncState: "idle",
+          syncError: null,
+        }));
+      },
+
+      dismissConflict: () => set({ pendingConflict: null, syncState: "idle" }),
+
+      // ── Cloud sync ──────────────────────────────────────────────────────────
 
       syncToCloud: async (payload) => {
         set({ syncState: "syncing", syncError: null });
@@ -307,7 +497,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             if (workspace && "version" in workspace) {
               return workspace as WorkspaceSnapshot;
             }
-
             const legacy = workspace as LegacyWorkspace;
             return {
               version: 2,

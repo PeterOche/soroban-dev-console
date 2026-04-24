@@ -111,3 +111,76 @@ export function getDeployedFixtures(): FixtureContract[] {
 
 /** @deprecated Use getFixtureContracts() instead */
 export const FIXTURE_CONTRACTS = STATIC_FIXTURES;
+
+// ── FE-032: Workspace templates ───────────────────────────────────────────────
+
+import type { WorkspaceArtifactRef } from "@/store/workspace-schema";
+
+/** A versioned workspace template that can be used to bootstrap a new workspace. */
+export interface WorkspaceTemplate {
+  /** Unique key for this template */
+  key: string;
+  /** Display name shown in the UI */
+  name: string;
+  /** Short description of the template's purpose */
+  description: string;
+  /** Template schema version — increment when the shape changes */
+  version: number;
+  /** Default network for workspaces created from this template */
+  defaultNetwork?: "testnet" | "local" | "mainnet" | "futurenet";
+  /** Pre-populated contract IDs */
+  contractIds?: string[];
+  /** Pre-populated saved call IDs */
+  savedCallIds?: string[];
+  /** Pre-populated artifact refs */
+  artifactRefs?: WorkspaceArtifactRef[];
+}
+
+/** Built-in workspace templates for common Soroban developer flows. */
+export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
+  {
+    key: "token-inspection",
+    name: "Token Inspection",
+    description: "Pre-loaded with the SAC-compatible token fixture for transfer and mint demos.",
+    version: 1,
+    defaultNetwork: "local",
+    contractIds: [],
+    savedCallIds: [],
+    artifactRefs: [],
+  },
+  {
+    key: "fixture-exploration",
+    name: "Fixture Exploration",
+    description: "Includes counter, event emitter, and types-tester fixtures for exploring Soroban primitives.",
+    version: 1,
+    defaultNetwork: "local",
+    contractIds: [],
+    savedCallIds: [],
+    artifactRefs: [],
+  },
+  {
+    key: "deployment-testing",
+    name: "Deployment Testing",
+    description: "Blank workspace on testnet, ready for WASM upload and contract deployment workflows.",
+    version: 1,
+    defaultNetwork: "testnet",
+    contractIds: [],
+    savedCallIds: [],
+    artifactRefs: [],
+  },
+  {
+    key: "auth-debugging",
+    name: "Auth Debugging",
+    description: "Pre-loaded with the auth-tester fixture for testing authorization flows.",
+    version: 1,
+    defaultNetwork: "local",
+    contractIds: [],
+    savedCallIds: [],
+    artifactRefs: [],
+  },
+];
+
+/** Look up a template by its key. Returns undefined if not found. */
+export function getWorkspaceTemplate(key: string): WorkspaceTemplate | undefined {
+  return WORKSPACE_TEMPLATES.find((t) => t.key === key);
+}

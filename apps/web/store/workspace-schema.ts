@@ -20,3 +20,14 @@ export interface WorkspaceSnapshot {
   createdAt: number;
   updatedAt: number;
 }
+
+/** FE-031: Named checkpoint capturing a point-in-time copy of a workspace. */
+export interface WorkspaceCheckpoint {
+  id: string;
+  workspaceId: string;
+  /** Human-readable label for this checkpoint */
+  label: string;
+  /** Full copy of the workspace state at checkpoint time */
+  snapshot: WorkspaceSnapshot;
+  createdAt: number;
+}

@@ -88,3 +88,51 @@ export function diffSnapshots(
 ): DiffResult[] {
   return computeStateDiff(before.entries, after.entries);
 }
+
+// ── FE-029: Workspace conflict detection utilities ────────────────────────────
+
+import type { WorkspaceSnapshot } from "@/store/workspace-schema";
+
+/** A human-readable summary of a single field conflict between local and remote. */
+export interface WorkspaceFieldDiff {
+  field: string;
+  localValue: string;
+  remoteValue: string;
+}
+
+/**
+ * Produce a human-readable diff between two workspace snapshots.
+ * Used to present conflict details to the user before they choose a merge strategy.
+ */
+export function diffWorkspaceSnapshots(
+  local: WorkspaceSnapshot,
+  remote: WorkspaceSnapshot,
+): WorkspaceFieldDiff[] {
+  const results: WorkspaceFieldDiff[] = [];
+
+  const scalarFields: (keyof WorkspaceSnapshot)[] = ["name", "selectedNetwork"];
+  for (const field of scalarFields) {
+    const lv = String(local[field] ?? "");
+    const rv = String(remote[field] ?? "");
+    if (lv !== rv) {
+      results.push({ field, localValue: lv, remoteValue: rv });
+    }
+  }
+
+  const arrayFields: (keyof WorkspaceSnapshot)[] = ["contractIds", "savedCallIds"];
+  for (const field of arrayFields) {
+    const lv = JSON.stringify((local[field] as string[]).slice().sort());
+    const rv = JSON.stringify((remote[field] as string[]).slice().sort());
+    if (lv !== rv) {
+      results.push({ field, localValue: lv, remoteValue: rv });
+    }
+  }
+
+  const laRefs = JSON.stringify(local.artifactRefs.map((r) => `${r.kind}:${r.id}`).sort());
+  const raRefs = JSON.stringify(remote.artifactRefs.map((r) => `${r.kind}:${r.id}`).sort());
+  if (laRefs !== raRefs) {
+    results.push({ field: "artifactRefs", localValue: laRefs, remoteValue: raRefs });
+  }
+
+  return results;
+}

@@ -8,8 +8,10 @@ import {
   CardTitle,
   CardDescription,
 } from "@devconsole/ui";
-import { Wallet, ArrowRight, BookOpen } from "lucide-react";
+import { Wallet, ArrowRight, BookOpen, LayoutTemplate } from "lucide-react";
 import Link from "next/link";
+import { WORKSPACE_TEMPLATES } from "@/lib/fixture-manifest";
+import { WorkspaceTemplateCard } from "@/components/workspace-template-card";
 
 export default function Home() {
   return (
@@ -87,6 +89,24 @@ export default function Home() {
               </CardHeader>
             </Card>
           </div>
+
+          {/* FE-032: Workspace template starter packs */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <LayoutTemplate className="h-5 w-5 text-primary" />
+                Start from a Template
+              </CardTitle>
+              <CardDescription>
+                Bootstrap a new workspace pre-configured for common developer flows.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-3 border-t pt-4 sm:grid-cols-2">
+              {WORKSPACE_TEMPLATES.map((template) => (
+                <WorkspaceTemplateCard key={template.key} template={template} />
+              ))}
+            </CardContent>
+          </Card>
         </div>
 
         <div className="h-full min-h-[500px] lg:col-span-1">
