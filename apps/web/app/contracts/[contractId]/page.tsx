@@ -7,6 +7,7 @@ import {
   Clock,
   AlertCircle,
   CheckCircle2,
+  FlaskConical,
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -21,6 +22,7 @@ import { fetchContractOverview, type ContractOverview } from "@/lib/contract-ove
 import { useAbiStore } from "@/store/useAbiStore";
 import { useNetworkStore } from "@/store/useNetworkStore";
 import { useWorkspaceStore } from "@/store/useWorkspaceStore";
+import { useWallet } from "@/store/useWallet";
 import {
   createNormalizedContractSpecFromFunctionNames,
   normalizeAbiJson,
@@ -41,6 +43,7 @@ export default function ContractDetailPage() {
   const { getActiveNetworkConfig } = useNetworkStore();
   const { getSpec, setSpec } = useAbiStore();
   const { activeWorkspaceId, addContractToWorkspace } = useWorkspaceStore();
+  const { isConnected, isSandboxMode, enterSandbox } = useWallet();
   const spec = getSpec(contractId);
 
   const [overview, setOverview] = useState<ContractOverview | null>(null);
@@ -202,6 +205,23 @@ export default function ContractDetailPage() {
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Error Loading Contract</AlertTitle>
           <AlertDescription>{overview.error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* FE-043: sandbox entry prompt for anonymous users */}
+      {!isConnected && !isSandboxMode && (
+        <Alert>
+          <FlaskConical className="h-4 w-4" />
+          <AlertTitle>No wallet connected</AlertTitle>
+          <AlertDescription className="flex items-center justify-between gap-4">
+            <span>
+              You can still explore and simulate contract functions without a wallet.
+            </span>
+            <Button variant="outline" size="sm" onClick={enterSandbox} className="shrink-0">
+              <FlaskConical className="mr-1 h-3 w-3" />
+              Enter Sandbox
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
 

@@ -16,6 +16,8 @@ import {
   Terminal,
   Save,
   Bookmark,
+  FlaskConical,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useWallet } from "@/store/useWallet";
 import { useNetworkStore } from "@/store/useNetworkStore";
@@ -135,7 +137,7 @@ function toContractArg(field: NonNullable<NormalizedContractSpec["functions"][nu
 
 export function ContractCallForm({ contractId }: ContractCallFormProps) {
   const genId = () => Math.random().toString(36).substring(2, 9);
-  const { isConnected, address } = useWallet();
+  const { isConnected, address, isSandboxMode, enterSandbox, exitSandbox } = useWallet();
   const { getActiveNetworkConfig } = useNetworkStore();
 
   const [fnName, setFnName] = useState("");
@@ -153,6 +155,18 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
   const spec = getSpec(contractId);
   const selectedFunction = spec?.functions.find((entry) => entry.name === fnName);
   const usesAbiInputs = Boolean(selectedFunction && selectedFunction.inputs.length > 0);
+
+  // FE-044: advanced fee/resource tuning state
+  const [showFeeControls, setShowFeeControls] = useState(false);
+  const [customFee, setCustomFee] = useState("100");
+  const [customCpuLimit, setCustomCpuLimit] = useState("");
+  const [customMemLimit, setCustomMemLimit] = useState("");
+
+  // FE-044: validate overrides before use
+  const feeOverride = (() => {
+    const n = Number(customFee);
+    return Number.isFinite(n) && n >= 100 ? String(n) : "100";
+  })();
 
   const formatInt = (value: number) =>
     new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
@@ -228,6 +242,7 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
 
       const operation = contract.call(fnName, ...scArgs);
 
+      // FE-043: sandbox uses a well-known public key when no wallet is connected
       const source =
         address || "GBZXN7PIRZGNMHGA7MUUUFFAUYVSF74BWXME4R37P2N6F5N4AUM5546F";
 
@@ -241,7 +256,8 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
           sequenceNumber: () => sequence,
           incrementSequenceNumber: () => {},
         },
-        { fee: "100", networkPassphrase: network.networkPassphrase },
+        // FE-044: apply fee override
+        { fee: feeOverride, networkPassphrase: network.networkPassphrase },
       )
         .addOperation(operation)
         .setTimeout(TimeoutInfinite)
@@ -294,7 +310,8 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
       const sourceAccount = await server.getAccount(address);
 
       const tx = new TransactionBuilder(sourceAccount, {
-        fee: "100",
+        // FE-044: apply fee override
+        fee: feeOverride,
         networkPassphrase: network.networkPassphrase,
       })
         .addOperation(contract.call(fnName, ...scArgs))
@@ -376,6 +393,32 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
         <SavedCallsSheet contractId={contractId} onSelect={handleLoad} />
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* FE-043: sandbox mode banner */}
+        {isSandboxMode && (
+          <div className="flex items-center justify-between rounded-md border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-sm">
+            <div className="flex items-center gap-2 text-blue-700">
+              <FlaskConical className="h-4 w-4" />
+              <span>Sandbox mode — simulation only, no wallet required</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-blue-700 hover:text-blue-900"
+              onClick={exitSandbox}
+            >
+              Exit
+            </Button>
+          </div>
+        )}
+        {!isConnected && !isSandboxMode && (
+          <div className="flex items-center justify-between rounded-md border border-dashed px-4 py-2 text-sm text-muted-foreground">
+            <span>No wallet connected — simulation available in sandbox mode</span>
+            <Button variant="outline" size="sm" onClick={enterSandbox}>
+              <FlaskConical className="mr-1 h-3 w-3" />
+              Enter Sandbox
+            </Button>
+          </div>
+        )}
         <div className="space-y-2">
           <Label>Function Name</Label>
           {spec ? (
@@ -615,6 +658,68 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
         )}
 
         <div className="flex gap-3 pt-2">
+          {/* FE-044: fee/resource tuning toggle */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1 text-xs text-muted-foreground"
+            onClick={() => setShowFeeControls((v) => !v)}
+            title="Advanced fee and resource controls"
+          >
+            <SlidersHorizontal className="h-3 w-3" />
+            {showFeeControls ? "Hide" : "Fee & Resources"}
+          </Button>
+        </div>
+
+        {/* FE-044: advanced fee and resource controls */}
+        {showFeeControls && (
+          <div className="rounded-md border border-dashed p-4 space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Advanced Fee &amp; Resource Overrides
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Base Fee (stroops, min 100)</Label>
+                <Input
+                  type="number"
+                  min={100}
+                  value={customFee}
+                  onChange={(e) => setCustomFee(e.target.value)}
+                  placeholder="100"
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">CPU Limit (instructions)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={customCpuLimit}
+                  onChange={(e) => setCustomCpuLimit(e.target.value)}
+                  placeholder="auto"
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Memory Limit (bytes)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={customMemLimit}
+                  onChange={(e) => setCustomMemLimit(e.target.value)}
+                  placeholder="auto"
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              CPU and memory limits are advisory — the network enforces protocol maximums.
+              Unsafe values are validated before signing.
+            </p>
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-2">
           <Button
             variant="secondary"
             className="flex-1"
@@ -626,13 +731,14 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
             ) : (
               <Terminal className="mr-2 h-4 w-4" />
             )}
-            Simulate
+            {isSandboxMode ? "Simulate (Sandbox)" : "Simulate"}
           </Button>
 
           <Button
             className="flex-1"
             onClick={handleSend}
-            disabled={isLoading || !fnName || !isConnected}
+            disabled={isLoading || !fnName || !isConnected || isSandboxMode}
+            title={isSandboxMode ? "Connect a wallet to submit transactions" : undefined}
           >
             {isLoading ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
