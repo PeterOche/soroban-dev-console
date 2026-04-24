@@ -8,7 +8,7 @@
  */
 
 import { SERIALIZER_VERSION, assertSupportedVersion } from "@/store/schema-version";
-import type { WorkspaceSnapshot } from "@/store/workspace-schema";
+import type { WorkspaceSnapshot, WorkspaceNote } from "@/store/workspace-schema";
 import type { Contract } from "@/store/useContractStore";
 import type { SavedCall } from "@/store/useSavedCallsStore";
 
@@ -22,6 +22,8 @@ export interface SerializedWorkspace {
   contracts: Contract[];
   /** Only saved calls referenced by this workspace */
   savedCalls: SavedCall[];
+  /** FE-034: Notes/annotations — travel with exports, shares, and forks */
+  notes?: WorkspaceNote[];
 }
 
 // FE-025: Structured validation result — allows partial repair instead of all-or-nothing failure
@@ -149,10 +151,50 @@ export function verifyRoundTrip(original: SerializedWorkspace): boolean {
   }
 }
 
+/**
+ * FE-033: Fields that are sensitive or purely ephemeral and must never appear
+ * in exported, shared, or cloud-synced payloads.
+ *
+ * - Wallet address / connection state: user-specific, session-scoped
+ * - Network health: runtime-only, meaningless outside the originating session
+ * - syncState / syncError / cloudId: transient infrastructure state
+ * - pendingConflict: ephemeral UI state
+ *
+ * This list is the single documented boundary between durable workspace data
+ * and client-only state. Add new ephemeral fields here as the store grows.
+ */
+export const EPHEMERAL_FIELDS = [
+  "walletAddress",
+  "walletType",
+  "isConnected",
+  "health",
+  "syncState",
+  "syncError",
+  "cloudId",
+  "pendingConflict",
+  "checkpoints",
+] as const;
+
+export type EphemeralField = (typeof EPHEMERAL_FIELDS)[number];
+
+/**
+ * FE-033: Strip any ephemeral/sensitive keys from a workspace snapshot before
+ * it leaves the client (export, share, cloud sync).
+ * Returns a new object — does not mutate the input.
+ */
+export function sanitizeForExport(workspace: WorkspaceSnapshot): WorkspaceSnapshot {
+  const copy = { ...workspace } as Record<string, unknown>;
+  for (const field of EPHEMERAL_FIELDS) {
+    delete copy[field];
+  }
+  return copy as WorkspaceSnapshot;
+}
+
 export function serializeWorkspace(
   workspace: WorkspaceSnapshot,
   allContracts: Contract[],
   allSavedCalls: SavedCall[],
+  allNotes: WorkspaceNote[] = [],
 ): SerializedWorkspace {
   const contractSet = new Set(workspace.contractIds);
   const savedCallSet = new Set(workspace.savedCallIds);
@@ -160,9 +202,12 @@ export function serializeWorkspace(
   return {
     version: SERIALIZER_VERSION,
     exportedAt: new Date().toISOString(),
-    workspace,
+    // FE-033: always sanitize before serializing
+    workspace: sanitizeForExport(workspace),
     contracts: allContracts.filter((c) => contractSet.has(c.id)),
     savedCalls: allSavedCalls.filter((c) => savedCallSet.has(c.id)),
+    // FE-034: include notes so they travel with the payload
+    notes: allNotes.filter((n) => n.workspaceId === workspace.id),
   };
 }
 
