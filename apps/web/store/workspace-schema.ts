@@ -31,3 +31,18 @@ export interface WorkspaceCheckpoint {
   snapshot: WorkspaceSnapshot;
   createdAt: number;
 }
+
+/**
+ * FE-034: Structured annotation attached to a workspace or one of its sub-resources.
+ * Notes are durable — they travel with exports, shares, and forks.
+ */
+export interface WorkspaceNote {
+  id: string;
+  workspaceId: string;
+  /** Optional: pin the note to a specific contract, savedCall, or artifact */
+  resourceType?: "contract" | "savedCall" | "artifact";
+  resourceId?: string;
+  body: string;
+  createdAt: number;
+  updatedAt: number;
+}

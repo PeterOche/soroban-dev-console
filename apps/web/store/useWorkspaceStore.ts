@@ -11,6 +11,7 @@ import { workspacesApi } from "@/lib/api/workspaces";
 import { useSyncQueueStore } from "./useSyncQueueStore";
 import type { CreateWorkspacePayload, UpdateWorkspacePayload } from "@devconsole/api-contracts";
 import type { WorkspaceTemplate } from "@/lib/fixture-manifest";
+import { buildMigrations, createMigrateFn } from "./store-migration";
 
 type LegacyWorkspace = {
   id: string;
@@ -484,42 +485,48 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     {
       name: "soroban-workspaces",
       version: STORE_SCHEMA_VERSION,
-      migrate: (persistedState) => {
-        const state = persistedState as
-          | {
-              workspaces?: Array<LegacyWorkspace | WorkspaceSnapshot>;
-              activeWorkspaceId?: string;
-            }
-          | undefined;
+      // FE-036: use the shared migration framework
+      migrate: createMigrateFn(
+        buildMigrations<WorkspaceState>([
+          {
+            fromVersion: 1,
+            toVersion: 2,
+            migrate: (persisted) => {
+              const state = persisted as
+                | { workspaces?: Array<LegacyWorkspace | WorkspaceSnapshot>; activeWorkspaceId?: string }
+                | undefined;
 
-        const workspaces =
-          state?.workspaces?.map((workspace) => {
-            if (workspace && "version" in workspace) {
-              return workspace as WorkspaceSnapshot;
-            }
-            const legacy = workspace as LegacyWorkspace;
-            return {
-              version: 2,
-              id: legacy.id,
-              name: legacy.name,
-              contractIds: legacy.contractIds ?? [],
-              savedCallIds: legacy.savedCalls ?? [],
-              artifactRefs: [],
-              selectedNetwork: "testnet",
-              createdAt: legacy.createdAt,
-              updatedAt: legacy.createdAt,
-            } satisfies WorkspaceSnapshot;
-          }) ?? [defaultWorkspace];
+              const workspaces =
+                state?.workspaces?.map((workspace) => {
+                  if (workspace && "version" in workspace) return workspace as WorkspaceSnapshot;
+                  const legacy = workspace as LegacyWorkspace;
+                  return {
+                    version: 2,
+                    id: legacy.id,
+                    name: legacy.name,
+                    contractIds: legacy.contractIds ?? [],
+                    savedCallIds: legacy.savedCalls ?? [],
+                    artifactRefs: [],
+                    selectedNetwork: "testnet",
+                    createdAt: legacy.createdAt,
+                    updatedAt: legacy.createdAt,
+                  } satisfies WorkspaceSnapshot;
+                }) ?? [defaultWorkspace];
 
-        return {
-          workspaces,
-          activeWorkspaceId:
-            state?.activeWorkspaceId &&
-            workspaces.some((workspace) => workspace.id === state.activeWorkspaceId)
-              ? state.activeWorkspaceId
-              : workspaces[0]?.id ?? defaultWorkspace.id,
-        };
-      },
+              return {
+                workspaces,
+                activeWorkspaceId:
+                  state?.activeWorkspaceId &&
+                  workspaces.some((w) => w.id === state.activeWorkspaceId)
+                    ? state.activeWorkspaceId
+                    : workspaces[0]?.id ?? defaultWorkspace.id,
+              };
+            },
+          },
+        ]),
+        STORE_SCHEMA_VERSION,
+        "soroban-workspaces",
+      ),
     },
   ),
 );
