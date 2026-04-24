@@ -15,6 +15,7 @@ import {
   WORKSPACE_IMPORTED,
   WORKSPACE_EXPORTED,
 } from "../../lib/domain-events.js";
+import { AuditService } from "../../lib/audit.service.js";
 import type {
   CreateWorkspaceDto,
   ImportWorkspaceDto,
@@ -28,6 +29,7 @@ export class WorkspacesService {
   constructor(
     private readonly repository: WorkspacesRepository,
     private readonly events: DomainEventBus,
+    private readonly audit: AuditService,
   ) {}
 
   @MapDbErrors()
@@ -127,6 +129,13 @@ export class WorkspacesService {
       name: workspace.name,
       selectedNetwork: workspace.selectedNetwork,
     });
+    void this.audit.log({
+      actor: ownerKey,
+      action: "workspace.created",
+      resourceType: "workspace",
+      resourceId: workspace.id,
+      summary: `Created workspace "${workspace.name}"`,
+    });
     return workspace;
   }
 
@@ -163,6 +172,14 @@ export class WorkspacesService {
         ...(dto.selectedNetwork !== undefined ? { selectedNetwork: dto.selectedNetwork } : {}),
       },
     });
+    void this.audit.log({
+      actor: ownerKey,
+      action: "workspace.updated",
+      resourceType: "workspace",
+      resourceId: id,
+      summary: `Updated workspace`,
+      metadata: { changes: dto },
+    });
     return workspace;
   }
 
@@ -171,6 +188,12 @@ export class WorkspacesService {
     await this.get(id, ownerKey);
     await this.repository.delete({ where: { id } });
     this.events.emit(WORKSPACE_DELETED, { workspaceId: id, ownerKey });
+    void this.audit.log({
+      actor: ownerKey,
+      action: "workspace.deleted",
+      resourceType: "workspace",
+      resourceId: id,
+    });
   }
 
   @MapDbErrors()
@@ -221,6 +244,14 @@ export class WorkspacesService {
       ownerKey,
       version: dto.version,
     });
+    void this.audit.log({
+      actor: ownerKey,
+      action: "workspace.imported",
+      resourceType: "workspace",
+      resourceId: workspace.id,
+      summary: `Imported workspace "${workspace.name}"`,
+      metadata: { version: dto.version },
+    });
     return workspace;
   }
 
@@ -254,6 +285,12 @@ export class WorkspacesService {
       updatedAt: workspace.updatedAt.getTime(),
     };
     this.events.emit(WORKSPACE_EXPORTED, { workspaceId: id, ownerKey });
+    void this.audit.log({
+      actor: ownerKey,
+      action: "workspace.exported",
+      resourceType: "workspace",
+      resourceId: id,
+    });
     return snapshot;
   }
 }

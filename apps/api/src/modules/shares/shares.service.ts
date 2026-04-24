@@ -14,6 +14,7 @@ import {
   SHARE_RESOLVED,
   SHARE_REVOKED,
 } from "../../lib/domain-events.js";
+import { AuditService } from "../../lib/audit.service.js";
 import { randomBytes } from "crypto";
 
 import { IsString, IsOptional, IsObject, IsInt, Min, IsIn } from "class-validator";
@@ -83,6 +84,7 @@ export class SharesService {
     private readonly repository: SharesRepository,
     private readonly workspacesRepository: WorkspacesRepository,
     private readonly events: DomainEventBus,
+    private readonly audit: AuditService,
   ) {}
 
   /** BE-003: create requires the caller to own the target workspace. */
@@ -111,6 +113,14 @@ export class SharesService {
       shareId: share.id,
       workspaceId: dto.workspaceId,
       tokenHint: token.slice(0, 6) + "…",
+    });
+    void this.audit.log({
+      actor: ownerKey,
+      action: "share.created",
+      resourceType: "share",
+      resourceId: share.id,
+      summary: `Created share for workspace ${dto.workspaceId}`,
+      metadata: { workspaceId: dto.workspaceId, label: dto.label },
     });
     return share;
   }
@@ -169,6 +179,13 @@ export class SharesService {
     this.events.emit(SHARE_REVOKED, {
       shareId: share.id,
       workspaceId: share.workspaceId,
+    });
+    void this.audit.log({
+      actor: ownerKey,
+      action: "share.revoked",
+      resourceType: "share",
+      resourceId: share.id,
+      summary: `Revoked share for workspace ${share.workspaceId}`,
     });
     return updated;
   }

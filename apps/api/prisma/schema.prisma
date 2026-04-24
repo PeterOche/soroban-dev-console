@@ -76,6 +76,23 @@ model WorkspaceArtifact {
   @@map("workspace_artifacts")
 }
 
+/// BE-011: Durable audit record for workspace and share mutations.
+model AuditLog {
+  id          String   @id @default(cuid())
+  actor       String
+  action      String
+  resourceType String  @map("resource_type")
+  resourceId  String   @map("resource_id")
+  summary     String?
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([actor])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
 /// Immutable, read-only links that capture a point-in-time workspace snapshot.
 model ShareLink {
   id            String     @id @default(cuid())

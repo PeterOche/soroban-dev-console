@@ -1,12 +1,14 @@
 /**
- * DEVOPS-005: Frontend client for the /runtime-config API endpoint.
+ * BE-012 / DEVOPS-005: Frontend client for the /runtime-config API endpoint.
  *
- * The frontend bootstraps from this so networks, fixture IDs, and feature
- * flags can be changed centrally without rebuilding the frontend.
+ * Supports runtime profiles (local, demo, production) and feature flags
+ * so behavior differences are intentional and maintainable.
  * Falls back to safe defaults if the API is unreachable.
  */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+export type RuntimeProfile = "local" | "demo" | "production";
 
 export interface RuntimeNetworkEntry {
   id: string;
@@ -28,10 +30,13 @@ export interface RuntimeFeatureFlags {
   enableSharing: boolean;
   enableMultiOp: boolean;
   enableTokenDashboard: boolean;
+  enableAuditLog: boolean;
+  enableRpcGateway: boolean;
 }
 
 export interface RuntimeConfig {
   version: number;
+  profile: RuntimeProfile;
   networks: RuntimeNetworkEntry[];
   fixtures: RuntimeFixtureEntry[];
   flags: RuntimeFeatureFlags;
@@ -39,6 +44,7 @@ export interface RuntimeConfig {
 
 const FALLBACK_CONFIG: RuntimeConfig = {
   version: 1,
+  profile: "local",
   networks: [
     {
       id: "testnet",
@@ -53,6 +59,8 @@ const FALLBACK_CONFIG: RuntimeConfig = {
     enableSharing: true,
     enableMultiOp: true,
     enableTokenDashboard: true,
+    enableAuditLog: true,
+    enableRpcGateway: true,
   },
 };
 
@@ -63,7 +71,7 @@ export async function fetchRuntimeConfig(): Promise<RuntimeConfig> {
 
   try {
     const res = await fetch(`${API_BASE}/runtime-config`, {
-      next: { revalidate: 300 }, // cache for 5 min in Next.js
+      next: { revalidate: 300 },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     cached = (await res.json()) as RuntimeConfig;
@@ -77,4 +85,9 @@ export async function fetchRuntimeConfig(): Promise<RuntimeConfig> {
 /** Reset the in-memory cache (useful for testing). */
 export function resetRuntimeConfigCache(): void {
   cached = null;
+}
+
+/** Returns true when the given flag is enabled in the cached config. */
+export function isFeatureEnabled(flag: keyof RuntimeFeatureFlags): boolean {
+  return cached?.flags[flag] ?? FALLBACK_CONFIG.flags[flag];
 }

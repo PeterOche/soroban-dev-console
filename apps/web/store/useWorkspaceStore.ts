@@ -6,7 +6,8 @@ import type {
   WorkspaceSnapshot,
 } from "./workspace-schema";
 import { STORE_SCHEMA_VERSION } from "./schema-version";
-import { workspacesApi, type CreateWorkspacePayload } from "@/lib/api/workspaces";
+import { workspacesApi } from "@/lib/api/workspaces";
+import type { CreateWorkspacePayload, UpdateWorkspacePayload } from "@devconsole/api-contracts";
 
 type LegacyWorkspace = {
   id: string;
@@ -16,12 +17,15 @@ type LegacyWorkspace = {
   createdAt: number;
 };
 
+export type SyncState = "idle" | "syncing" | "error" | "conflict";
+
 interface WorkspaceState {
   workspaces: WorkspaceSnapshot[];
   activeWorkspaceId: string;
   /** cloud record id for the active workspace, if synced */
   cloudId: string | null;
-  syncState: "idle" | "syncing" | "error";
+  syncState: SyncState;
+  syncError: string | null;
 
   createWorkspace: (name: string, selectedNetwork?: string) => void;
   setActiveWorkspace: (id: string) => void;
@@ -34,6 +38,14 @@ interface WorkspaceState {
   deleteWorkspace: (id: string) => void;
   /** Push the active workspace to the cloud API */
   syncToCloud: (payload: CreateWorkspacePayload) => Promise<string | null>;
+  /** Load a workspace from the cloud by its cloud ID */
+  loadFromCloud: (cloudId: string) => Promise<boolean>;
+  /** Push local changes for an already-synced workspace */
+  pushToCloud: (localId: string, cloudId: string, payload: UpdateWorkspacePayload) => Promise<boolean>;
+  /** Delete a workspace from the cloud */
+  removeFromCloud: (cloudId: string) => Promise<boolean>;
+  /** Clear any sync error */
+  clearSyncError: () => void;
 }
 
 function createWorkspaceSnapshot(
@@ -74,6 +86,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       activeWorkspaceId: defaultWorkspace.id,
       cloudId: null,
       syncState: "idle" as const,
+      syncError: null,
 
       createWorkspace: (name, selectedNetwork = useNetworkStore.getState().currentNetwork) =>
         set((state) => ({
@@ -182,16 +195,84 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         })),
 
       syncToCloud: async (payload) => {
-        set({ syncState: "syncing" });
+        set({ syncState: "syncing", syncError: null });
         try {
           const remote = await workspacesApi.create(payload);
           set({ cloudId: remote.id, syncState: "idle" });
           return remote.id;
-        } catch {
-          set({ syncState: "error" });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Sync failed";
+          set({ syncState: "error", syncError: msg });
           return null;
         }
       },
+
+      loadFromCloud: async (cloudId) => {
+        set({ syncState: "syncing", syncError: null });
+        try {
+          const remote = await workspacesApi.get(cloudId);
+          const snapshot: WorkspaceSnapshot = {
+            version: STORE_SCHEMA_VERSION,
+            id: remote.id,
+            name: remote.name,
+            contractIds: (remote as any).savedContracts?.map((c: any) => c.contractId) ?? [],
+            savedCallIds: (remote as any).savedInteractions?.map((i: any) => i.id) ?? [],
+            artifactRefs: (remote as any).artifacts?.map((a: any) => ({ kind: a.kind, id: a.hash ?? a.name })) ?? [],
+            selectedNetwork: remote.selectedNetwork ?? "testnet",
+            createdAt: new Date(remote.createdAt).getTime(),
+            updatedAt: new Date(remote.updatedAt).getTime(),
+          };
+          set((state) => {
+            const exists = state.workspaces.some((w) => w.id === snapshot.id);
+            return {
+              workspaces: exists
+                ? state.workspaces.map((w) => (w.id === snapshot.id ? snapshot : w))
+                : [...state.workspaces, snapshot],
+              cloudId,
+              syncState: "idle",
+            };
+          });
+          return true;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Load failed";
+          set({ syncState: "error", syncError: msg });
+          return false;
+        }
+      },
+
+      pushToCloud: async (localId, cloudId, payload) => {
+        set({ syncState: "syncing", syncError: null });
+        try {
+          await workspacesApi.update(cloudId, payload);
+          set((state) => ({
+            workspaces: state.workspaces.map((w) =>
+              w.id === localId ? { ...w, updatedAt: Date.now() } : w,
+            ),
+            syncState: "idle",
+          }));
+          return true;
+        } catch (err) {
+          const isConflict = err instanceof Error && err.message.includes("revision");
+          const msg = err instanceof Error ? err.message : "Push failed";
+          set({ syncState: isConflict ? "conflict" : "error", syncError: msg });
+          return false;
+        }
+      },
+
+      removeFromCloud: async (cloudId) => {
+        set({ syncState: "syncing", syncError: null });
+        try {
+          await workspacesApi.remove(cloudId);
+          set({ cloudId: null, syncState: "idle" });
+          return true;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Remove failed";
+          set({ syncState: "error", syncError: msg });
+          return false;
+        }
+      },
+
+      clearSyncError: () => set({ syncError: null, syncState: "idle" }),
     }),
     {
       name: "soroban-workspaces",
