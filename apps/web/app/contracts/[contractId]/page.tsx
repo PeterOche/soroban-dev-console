@@ -225,7 +225,7 @@ export default function ContractDetailPage() {
         </Alert>
       )}
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      <Tabs defaultValue="overview" className="space-y-4" aria-label="Contract details tabs">
         <TabsList>
           <TabsTrigger value="overview">Overview & Interaction</TabsTrigger>
           <TabsTrigger value="storage">Storage</TabsTrigger>
@@ -277,15 +277,17 @@ export default function ContractDetailPage() {
                       <span className="font-medium">{interfaceStatus}</span>
                     </div>
                     <div className="space-y-2 border-t pt-4">
-                      <Label htmlFor="interface-upload">Load local interface</Label>
+                      <Label htmlFor="interface-upload-alt">Load local interface</Label>
                       <Input
-                        id="interface-upload"
+                        id="interface-upload-alt"
                         type="file"
                         accept=".json,.wasm"
                         disabled={isUploadingInterface}
                         onChange={handleInterfaceUpload}
+                        aria-describedby="upload-help-alt"
                       />
-                      <p className="text-xs text-muted-foreground">
+                      <p id="upload-help-alt"
+                      <p id="upload-help" className="text-xs text-muted-foreground">
                         Upload a local ABI JSON or WASM to drive the interaction form.
                       </p>
                     </div>

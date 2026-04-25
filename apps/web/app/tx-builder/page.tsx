@@ -14,6 +14,7 @@ import {
   Terminal,
   Eye,
   Download,
+  RotateCcw,
 } from "lucide-react";
 import { Server as SorobanServer } from "@stellar/stellar-sdk/rpc";
 import { useMemo, useState } from "react";
@@ -64,6 +65,38 @@ function shortKeyBase64(change: NormalizedSimulationResult["stateChanges"][numbe
   } catch {
     return "unavailable";
   }
+}
+
+function categorizeError(errorMessage: string): { category: string; guidance: string } {
+  const msg = errorMessage.toLowerCase();
+  if (msg.includes("timeout") || msg.includes("timed out")) {
+    return {
+      category: "Timeout",
+      guidance: "Transaction timed out. Try increasing the fee or check network congestion."
+    };
+  }
+  if (msg.includes("sequence") || msg.includes("bad seq")) {
+    return {
+      category: "Sequence Error",
+      guidance: "Sequence number issue. Refresh the page and try again."
+    };
+  }
+  if (msg.includes("insufficient") || msg.includes("balance")) {
+    return {
+      category: "Insufficient Funds",
+      guidance: "Not enough funds. Fund your account or reduce transaction size."
+    };
+  }
+  if (msg.includes("fee") || msg.includes("resource")) {
+    return {
+      category: "Fee/Resource Issue",
+      guidance: "Increase the base fee in advanced controls and try again."
+    };
+  }
+  return {
+    category: "Unknown Error",
+    guidance: "Check transaction details and network status. Contact support if issue persists."
+  };
 }
 
 /** FE-045: Validate each cart item before simulation/submission */
@@ -283,7 +316,9 @@ export default function TxBuilderPage() {
         clearCart();
         toast.success("Multi-operation transaction submitted.");
       } else {
-        throw new Error(txResult.errorMessage ?? "Transaction failed");
+        const errorDetails = categorizeError(txResult.errorMessage ?? "Unknown error");
+        setResult(`Submission failed: ${errorDetails.category} - ${errorDetails.guidance}`);
+        toast.error(`Submission failed: ${errorDetails.category}`);
       }
     } catch (error: any) {
       setResult(`Submission failed: ${error.message}`);
@@ -414,17 +449,19 @@ export default function TxBuilderPage() {
                 Advanced Fee Override
               </p>
               <div className="max-w-xs space-y-1">
-                <Label className="text-xs">Base Fee (stroops, min 100)</Label>
+                <Label htmlFor="custom-fee">Base Fee (stroops, min 100)</Label>
                 <Input
+                  id="custom-fee"
                   type="number"
                   min={100}
                   value={customFee}
                   onChange={(e) => setCustomFee(e.target.value)}
                   placeholder="100"
                   className="h-8 text-xs font-mono"
+                  aria-describedby="fee-help"
                 />
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p id="fee-help" className="text-[11px] text-muted-foreground">
                 Tuned fee stays consistent between simulation and submission.
               </p>
             </div>
@@ -478,12 +515,25 @@ export default function TxBuilderPage() {
             </div>
           )}
 
+          {result && result.startsWith("Submission failed") && (
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={handleSubmit} aria-label="Retry submitting the transaction">
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Retry Submission
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Retry with the same parameters or adjust settings above.
+              </p>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <ActionGuard action="simulate">
               <Button
                 variant="outline"
                 onClick={handleSimulate}
                 disabled={isLoading || cartItems.length < 2}
+                aria-label="Simulate the batch transaction"
               >
                 {isLoading ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -498,6 +548,7 @@ export default function TxBuilderPage() {
               <Button
                 onClick={handleSubmit}
                 disabled={isLoading || cartItems.length < 2}
+                aria-label="Sign and submit the batch transaction"
               >
                 {isLoading ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

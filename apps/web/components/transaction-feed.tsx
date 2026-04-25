@@ -197,6 +197,7 @@ export function TransactionFeed() {
               onClick={handleRefresh}
               title="Refresh"
               disabled={feedState === "loading"}
+              aria-label="Refresh transaction feed"
             >
               <RefreshCw className={`h-4 w-4 ${feedState === "loading" ? "animate-spin" : ""}`} />
             </Button>
@@ -206,9 +207,9 @@ export function TransactionFeed() {
 
       <CardContent className="flex-1 overflow-hidden p-0">
         <ScrollArea className="h-[400px]">
-          <div className="flex flex-col divide-y">
+          <div className="flex flex-col divide-y" role="list" aria-label="Transaction feed">
             {feedState === "account-missing" && (
-              <div className="flex flex-col items-center justify-center gap-3 p-8 text-center text-sm text-muted-foreground">
+              <div className="flex flex-col items-center justify-center gap-3 p-8 text-center text-sm text-muted-foreground" role="status" aria-live="polite">
                 <AlertCircle className="h-8 w-8 text-orange-400 opacity-50" />
                 <div>
                   <p className="font-semibold text-foreground">Account Not Found</p>
@@ -220,7 +221,7 @@ export function TransactionFeed() {
             )}
 
             {feedState === "error" && (
-              <Alert variant="destructive" className="m-4">
+              <Alert variant="destructive" className="m-4" role="alert">
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Error</AlertTitle>
                 <AlertDescription>{errorMsg}</AlertDescription>
@@ -228,19 +229,19 @@ export function TransactionFeed() {
             )}
 
             {feedState === "empty" && (
-              <div className="p-8 text-center text-sm text-muted-foreground">
+              <div className="p-8 text-center text-sm text-muted-foreground" role="status">
                 No transactions found for this account on {currentNetwork}.
               </div>
             )}
 
             {feedState === "loading" && txs.length === 0 && (
-              <div className="p-8 text-center text-sm text-muted-foreground">
+              <div className="p-8 text-center text-sm text-muted-foreground" role="status" aria-live="polite">
                 Loading transactions…
               </div>
             )}
 
             {feedState === "degraded" && errorMsg && (
-              <Alert className="m-4 border-yellow-400/50 bg-yellow-500/10">
+              <Alert className="m-4 border-yellow-400/50 bg-yellow-500/10" role="alert">
                 <WifiOff className="h-4 w-4 text-yellow-600" />
                 <AlertDescription className="text-yellow-700">{errorMsg}</AlertDescription>
               </Alert>
@@ -249,7 +250,10 @@ export function TransactionFeed() {
             {txs.map((tx) => (
               <div
                 key={tx.id}
-                className="flex items-center gap-3 p-4 transition-colors hover:bg-muted/50"
+                className="flex items-center gap-3 p-4 transition-colors hover:bg-muted/50 focus-within:bg-muted/50"
+                role="listitem"
+                tabIndex={0}
+                aria-label={`Transaction ${tx.hash.slice(0, 6)}…${tx.hash.slice(-6)}, ${tx.successful ? 'successful' : 'failed'}, ${tx.operationSummary}`}
               >
                 <div className="shrink-0">
                   {tx.successful ? (
@@ -287,14 +291,17 @@ export function TransactionFeed() {
                       </span>
                     )}
                   </div>
+                  {!tx.successful && (
+                    <div className="mt-2 text-xs text-red-600 dark:text-red-400">
+                      Transaction failed. Check network status or try increasing fee for retry.
+                    </div>
+                  )}
                 </div>
 
                 <Button
                   variant="ghost"
                   size="icon"
-                  asChild
-                  className="h-8 w-8 text-muted-foreground"
-                  title="View details"
+                  aria-label={`View details for transaction ${tx.hash.slice(0, 6)}…${tx.hash.slice(-6)}`}
                 >
                   <Link href={`/tx/${tx.hash}`}>
                     <Info className="h-4 w-4" />
@@ -306,6 +313,7 @@ export function TransactionFeed() {
                   size="icon"
                   asChild
                   className="h-8 w-8 text-muted-foreground"
+                  aria-label={`View on Stellar Explorer for transaction ${tx.hash.slice(0, 6)}…${tx.hash.slice(-6)}`}
                 >
                   <a
                     href={`https://stellar.expert/explorer/${currentNetwork}/tx/${tx.hash}`}
