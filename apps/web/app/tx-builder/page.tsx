@@ -13,6 +13,7 @@ import {
   SlidersHorizontal,
   Terminal,
   Eye,
+  Download,
 } from "lucide-react";
 import { Server as SorobanServer } from "@stellar/stellar-sdk/rpc";
 import { useMemo, useState } from "react";
@@ -25,6 +26,7 @@ import { ActionGuard } from "@/components/action-guard";
 import { convertToScVal, type NormalizedSimulationResult } from "@devconsole/soroban-utils";
 import { useNetworkStore } from "@/store/useNetworkStore";
 import { SavedCall, useSavedCallsStore } from "@/store/useSavedCallsStore";
+import { useResultBundlesStore } from "@/store/useResultBundlesStore";
 import { useWallet } from "@/store/useWallet";
 import { Alert, AlertDescription } from "@devconsole/ui";
 import { Badge } from "@devconsole/ui";
@@ -38,6 +40,7 @@ import {
 } from "@devconsole/ui";
 import { Input } from "@devconsole/ui";
 import { Label } from "@devconsole/ui";
+import { exportResultBundle } from "@/lib/result-bundles";
 
 type SimulationSummary = {
   operationCount: number;
@@ -88,6 +91,7 @@ export default function TxBuilderPage() {
   const pathname = usePathname();
   const { savedCalls, cartItems, addToCart, removeFromCart, moveCartItem, clearCart } =
     useSavedCallsStore();
+  const { addBundle } = useResultBundlesStore();
   const { getActiveNetworkConfig, currentNetwork } = useNetworkStore();
   const { isConnected, address, isSandboxMode, enterSandbox, exitSandbox } = useWallet();
 
@@ -191,6 +195,17 @@ export default function TxBuilderPage() {
       const normalized = await simulateTx(txXdr, network);
       if (!normalized.ok) throw new Error(normalized.error || "Unknown simulation error");
 
+      addBundle({
+        kind: "batch",
+        title: "Batch simulation",
+        networkId: network.id,
+        payload: {
+          operationCount: cartItems.length,
+          cartItems,
+          simulation: normalized,
+        },
+      });
+
       setSimulation({ operationCount: cartItems.length, details: normalized });
       setResult("Simulation success for batched transaction.");
       toast.success("Simulation success");
@@ -249,6 +264,20 @@ export default function TxBuilderPage() {
         setSimulation({ operationCount: cartItems.length, details: txResult.simulation });
       }
 
+      addBundle({
+        kind: "batch",
+        title: "Batch submission",
+        networkId: network.id,
+        txHash: txResult.hash,
+        payload: {
+          operationCount: cartItems.length,
+          cartItems,
+          status: txResult.status,
+          simulation: txResult.simulation,
+          errorMessage: txResult.errorMessage,
+        },
+      });
+
       if (txResult.status === "success") {
         setResult(`Transaction submitted. Hash: ${txResult.hash}`);
         clearCart();
@@ -262,6 +291,24 @@ export default function TxBuilderPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleExportBundle = () => {
+    const network = getActiveNetworkConfig();
+    const bundle = addBundle({
+      kind: "batch",
+      title: "Batch manual export",
+      networkId: network.id,
+      payload: {
+        operationCount: cartItems.length,
+        cartItems,
+        simulation,
+        result,
+        opErrors,
+      },
+    });
+    exportResultBundle(bundle);
+    toast.success("Batch result bundle exported");
   };
 
   return (
@@ -460,6 +507,12 @@ export default function TxBuilderPage() {
                 Sign &amp; Submit
               </Button>
             </ActionGuard>
+            {(simulation || result) && (
+              <Button variant="outline" onClick={handleExportBundle}>
+                <Download className="mr-2 h-4 w-4" />
+                Export Bundle
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

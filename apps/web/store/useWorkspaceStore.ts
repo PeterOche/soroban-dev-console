@@ -41,6 +41,22 @@ export interface ConflictResult {
 /** FE-029: Strategy for resolving a detected conflict. */
 export type MergeStrategy = "keep-local" | "keep-remote" | "merge-additive";
 
+export type ContractBookmarkSource =
+  | "contracts-page"
+  | "command-palette"
+  | "fixture"
+  | "manual";
+
+export interface ContractBookmark {
+  id: string;
+  workspaceId: string;
+  contractId: string;
+  networkId: string;
+  source: ContractBookmarkSource;
+  favorite: boolean;
+  createdAt: number;
+}
+
 interface WorkspaceState {
   workspaces: WorkspaceSnapshot[];
   activeWorkspaceId: string;
@@ -52,6 +68,8 @@ interface WorkspaceState {
   checkpoints: Record<string, WorkspaceCheckpoint[]>;
   /** FE-029: Pending conflict data awaiting user resolution */
   pendingConflict: (ConflictResult & { remoteSnapshot: WorkspaceSnapshot }) | null;
+  /** FE-054: Contract bookmarks keyed by workspace ID */
+  contractBookmarks: Record<string, ContractBookmark[]>;
 
   createWorkspace: (name: string, selectedNetwork?: string) => void;
   /** FE-032: Create a workspace pre-populated from a template */
@@ -88,6 +106,21 @@ interface WorkspaceState {
   resolveConflict: (strategy: MergeStrategy) => void;
   /** FE-029: Dismiss the pending conflict without resolving */
   dismissConflict: () => void;
+  /** FE-054: Save contract bookmark with network/source context */
+  bookmarkContract: (
+    workspaceId: string,
+    contractId: string,
+    networkId: string,
+    source: ContractBookmarkSource,
+  ) => ContractBookmark;
+  /** FE-054: Remove a contract bookmark */
+  removeContractBookmark: (workspaceId: string, bookmarkId: string) => void;
+  /** FE-054: Toggle bookmark as favorite */
+  toggleBookmarkFavorite: (workspaceId: string, bookmarkId: string) => void;
+  /** FE-054: Repair bookmark network context */
+  repairBookmarkNetwork: (workspaceId: string, bookmarkId: string, networkId: string) => void;
+  /** FE-054: Retrieve workspace bookmarks (favorites first) */
+  getContractBookmarks: (workspaceId: string) => ContractBookmark[];
 }
 
 function createWorkspaceSnapshot(
@@ -166,6 +199,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       syncError: null,
       checkpoints: {},
       pendingConflict: null,
+      contractBookmarks: {},
 
       createWorkspace: (name, selectedNetwork = useNetworkStore.getState().currentNetwork) =>
         set((state) => ({
@@ -383,6 +417,91 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       dismissConflict: () => set({ pendingConflict: null, syncState: "idle" }),
+
+      bookmarkContract: (workspaceId, contractId, networkId, source) => {
+        const bookmark: ContractBookmark = {
+          id: crypto.randomUUID(),
+          workspaceId,
+          contractId,
+          networkId,
+          source,
+          favorite: false,
+          createdAt: Date.now(),
+        };
+
+        set((state) => {
+          const existing = state.contractBookmarks[workspaceId] ?? [];
+          const duplicate = existing.find(
+            (entry) =>
+              entry.contractId === contractId && entry.networkId === networkId,
+          );
+          if (duplicate) {
+            return {
+              contractBookmarks: {
+                ...state.contractBookmarks,
+                [workspaceId]: existing.map((entry) =>
+                  entry.id === duplicate.id
+                    ? { ...entry, source, createdAt: Date.now() }
+                    : entry,
+                ),
+              },
+            };
+          }
+
+          return {
+            contractBookmarks: {
+              ...state.contractBookmarks,
+              [workspaceId]: [bookmark, ...existing],
+            },
+          };
+        });
+
+        return bookmark;
+      },
+
+      removeContractBookmark: (workspaceId, bookmarkId) =>
+        set((state) => ({
+          contractBookmarks: {
+            ...state.contractBookmarks,
+            [workspaceId]: (state.contractBookmarks[workspaceId] ?? []).filter(
+              (entry) => entry.id !== bookmarkId,
+            ),
+          },
+        })),
+
+      toggleBookmarkFavorite: (workspaceId, bookmarkId) =>
+        set((state) => ({
+          contractBookmarks: {
+            ...state.contractBookmarks,
+            [workspaceId]: (state.contractBookmarks[workspaceId] ?? []).map(
+              (entry) =>
+                entry.id === bookmarkId
+                  ? { ...entry, favorite: !entry.favorite }
+                  : entry,
+            ),
+          },
+        })),
+
+      repairBookmarkNetwork: (workspaceId, bookmarkId, networkId) =>
+        set((state) => ({
+          contractBookmarks: {
+            ...state.contractBookmarks,
+            [workspaceId]: (state.contractBookmarks[workspaceId] ?? []).map(
+              (entry) =>
+                entry.id === bookmarkId
+                  ? { ...entry, networkId }
+                  : entry,
+            ),
+          },
+        })),
+
+      getContractBookmarks: (workspaceId) => {
+        const entries = get().contractBookmarks[workspaceId] ?? [];
+        return [...entries].sort((a, b) => {
+          if (a.favorite === b.favorite) return b.createdAt - a.createdAt;
+          return a.favorite ? -1 : 1;
+        });
+      },
 
       // ── Cloud sync ──────────────────────────────────────────────────────────
 

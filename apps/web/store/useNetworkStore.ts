@@ -16,6 +16,13 @@ export interface NetworkConfig {
   networkPassphrase: string;
   horizonUrl?: string;
   isCustom?: boolean;
+  funding?: FundingProviderConfig;
+}
+
+export interface FundingProviderConfig {
+  type: "none" | "friendbot" | "custom-http";
+  label?: string;
+  endpoint?: string;
 }
 
 // Default/System Networks (Read-only)
@@ -33,6 +40,11 @@ export const DEFAULT_NETWORKS: Record<string, NetworkConfig> = {
     rpcUrl: "https://soroban-testnet.stellar.org",
     networkPassphrase: "Test SDF Network ; September 2015",
     horizonUrl: "https://horizon-testnet.stellar.org",
+    funding: {
+      type: "friendbot",
+      label: "Get Testnet XLM",
+      endpoint: "https://friendbot.stellar.org",
+    },
   },
   futurenet: {
     id: "futurenet",
@@ -40,6 +52,9 @@ export const DEFAULT_NETWORKS: Record<string, NetworkConfig> = {
     rpcUrl: "https://rpc-futurenet.stellar.org",
     networkPassphrase: "Test SDF Future Network ; October 2022",
     horizonUrl: "https://horizon-futurenet.stellar.org",
+    funding: {
+      type: "none",
+    },
   },
   local: {
     id: "local",
@@ -47,6 +62,9 @@ export const DEFAULT_NETWORKS: Record<string, NetworkConfig> = {
     rpcUrl: "http://localhost:8000/soroban/rpc",
     networkPassphrase: "Standalone Network ; February 2017",
     horizonUrl: "http://localhost:8000",
+    funding: {
+      type: "none",
+    },
   },
 };
 
@@ -64,6 +82,7 @@ interface NetworkState {
   getActiveNetworkConfig: () => NetworkConfig;
   getAllNetworks: () => NetworkConfig[];
   getHorizonUrl: () => string;
+  getFundingProvider: () => FundingProviderConfig;
   // FE-042: check if a previously-recorded network still matches current
   isNetworkMismatch: (recordedNetworkId: string | null) => boolean;
 }
@@ -111,6 +130,11 @@ export const useNetworkStore = create<NetworkState>()(
       getHorizonUrl: () => {
         const network = get().getActiveNetworkConfig();
         return network.horizonUrl ?? DEFAULT_NETWORKS["testnet"].horizonUrl!;
+      },
+
+      getFundingProvider: () => {
+        const network = get().getActiveNetworkConfig();
+        return network.funding ?? { type: "none" };
       },
 
       // FE-042: returns true when the active network differs from a recorded one

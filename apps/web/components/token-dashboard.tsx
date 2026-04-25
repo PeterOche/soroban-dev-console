@@ -11,6 +11,8 @@ import {
   TimeoutInfinite,
 } from "@stellar/stellar-sdk";
 import { useNetworkStore } from "@/store/useNetworkStore";
+import { useSavedCallsStore } from "@/store/useSavedCallsStore";
+import { useWorkspaceStore } from "@/store/useWorkspaceStore";
 import {
   Card,
   CardContent,
@@ -44,6 +46,13 @@ interface TokenMetadata {
 export function TokenDashboard({ contractId }: TokenDashboardProps) {
   const { getActiveNetworkConfig } = useNetworkStore();
   const { address } = useWallet();
+  const { activeWorkspaceId } = useWorkspaceStore();
+  const {
+    savePreset,
+    getPresetsForContract,
+    applyPresetToCart,
+    repairPresetNetwork,
+  } = useSavedCallsStore();
 
   const [metadata, setMetadata] = useState<TokenMetadata | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +62,9 @@ export function TokenDashboard({ contractId }: TokenDashboardProps) {
   const [checkAddress, setCheckAddress] = useState("");
   const [balance, setBalance] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+
+  const networkId = getActiveNetworkConfig().id;
+  const presets = getPresetsForContract(contractId);
 
   const callView = async (method: string, args: any[] = []) => {
     const network = getActiveNetworkConfig();
@@ -151,6 +163,22 @@ export function TokenDashboard({ contractId }: TokenDashboardProps) {
 
   if (!isToken || !metadata) return null;
 
+  const createTokenPreset = (
+    name: string,
+    fnName: string,
+    args: Array<{ name: string; type: "address" | "i128" | "symbol" | "string"; value: string }>,
+  ) => {
+    savePreset({
+      name,
+      contractId,
+      fnName,
+      args: args.map((arg) => ({ id: crypto.randomUUID(), ...arg })),
+      network: networkId,
+      source: "token",
+    });
+    toast.success("Preset saved");
+  };
+
   return (
     <Card className="mb-6 border-blue-200 bg-blue-50/30 dark:border-blue-900 dark:bg-blue-900/10">
       <CardHeader className="pb-3">
@@ -220,21 +248,81 @@ export function TokenDashboard({ contractId }: TokenDashboardProps) {
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full shrink-0 cursor-not-allowed justify-start gap-2 opacity-70"
+                className="w-full justify-start gap-2"
+                onClick={() =>
+                  createTokenPreset("Token transfer", "transfer", [
+                    { name: "from", type: "address", value: address ?? "" },
+                    { name: "to", type: "address", value: "" },
+                    { name: "amount", type: "i128", value: "0" },
+                  ])
+                }
               >
-                <ArrowRightLeft className="h-4 w-4" /> Transfer
+                <ArrowRightLeft className="h-4 w-4" /> Save Transfer Preset
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full shrink-0 cursor-not-allowed justify-start gap-2 break-all opacity-70"
+                className="w-full justify-start gap-2"
+                onClick={() =>
+                  createTokenPreset("Token mint", "mint", [
+                    { name: "to", type: "address", value: address ?? "" },
+                    { name: "amount", type: "i128", value: "0" },
+                  ])
+                }
               >
-                <Coins className="h-4 w-4" /> Mint
+                <Coins className="h-4 w-4" /> Save Mint Preset
               </Button>
             </div>
-            <p className="pt-1 text-[10px] text-muted-foreground">
-              * Use the "Interact" form below to execute these transfers.
-            </p>
+
+            {presets.length > 0 && (
+              <div className="space-y-2 pt-1">
+                {presets.slice(0, 4).map((preset) => {
+                  const isStale = preset.network !== networkId;
+                  return (
+                    <div
+                      key={preset.id}
+                      className="flex items-center justify-between rounded-md border bg-background px-2 py-1"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium">{preset.name}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {preset.fnName} · {preset.network}
+                          {isStale ? " · stale" : ""}
+                        </p>
+                      </div>
+                      <div className="flex gap-1">
+                        {isStale && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              repairPresetNetwork(preset.id, networkId);
+                              toast.success("Preset repaired for current network");
+                            }}
+                          >
+                            Repair
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const call = applyPresetToCart(preset.id, {
+                              workspaceId: activeWorkspaceId,
+                            });
+                            if (call) {
+                              toast.success("Preset added to saved calls and batch cart");
+                            }
+                          }}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </CardContent>

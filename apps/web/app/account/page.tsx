@@ -31,6 +31,7 @@ import {
 import { useWallet } from "@/store/useWallet";
 import { useNetworkStore } from "@/store/useNetworkStore";
 import { FundAccountButton } from "@/components/fund-account-button";
+import { canFundWithProvider } from "@/lib/funding";
 
 interface AssetBalance {
   asset_type: string;
@@ -121,7 +122,7 @@ function DisconnectedState() {
 
 export default function AccountDashboard() {
   const { isConnected, address } = useWallet();
-  const { getActiveNetworkConfig, currentNetwork } = useNetworkStore();
+  const { getActiveNetworkConfig, currentNetwork, getFundingProvider } = useNetworkStore();
 
   const [accountData, setAccountData] = useState<AccountData | null>(null);
   const [recentOps, setRecentOps] = useState<RecentOp[]>([]);
@@ -195,8 +196,7 @@ export default function AccountDashboard() {
   const xlmBalance = accountData?.balances.find((b) => b.asset_type === "native");
   const trustlines = accountData?.balances.filter((b) => b.asset_type !== "native") ?? [];
 
-  // FE-052: network-aware capabilities
-  const isTestnetLike = currentNetwork === "testnet" || currentNetwork === "futurenet";
+  const canFund = canFundWithProvider(getFundingProvider());
   const explorerBase =
     currentNetwork === "mainnet"
       ? "https://stellar.expert/explorer/public/tx"
@@ -218,8 +218,7 @@ export default function AccountDashboard() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* FE-052: only show fund button on test networks */}
-          {isTestnetLike && <FundAccountButton />}
+          {canFund && <FundAccountButton />}
           <Button onClick={fetchAccountData} disabled={loading} variant="outline" size="sm">
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
@@ -234,10 +233,10 @@ export default function AccountDashboard() {
           <AlertTitle>Error Loading Account</AlertTitle>
           <AlertDescription className="space-y-2">
             <p>{error}</p>
-            {error.includes("not found") && isTestnetLike && (
+            {error.includes("not found") && canFund && (
               <div className="mt-3 rounded-md border border-destructive/20 bg-destructive/10 p-3">
                 <p className="text-sm font-medium text-foreground">
-                  💡 Click <strong className="text-blue-500">"Get Testnet XLM"</strong> to fund
+                  Click <strong className="text-blue-500">"Fund Account"</strong> to fund
                   and create this account instantly.
                 </p>
               </div>
@@ -463,7 +462,7 @@ export default function AccountDashboard() {
               <span className="font-mono text-sm">{accountData.balances.length}</span>
             </div>
             {/* FE-052: network-aware developer tools */}
-            {isTestnetLike && (
+            {canFund && (
               <div className="flex justify-between rounded-lg bg-blue-500/10 p-3">
                 <span className="text-sm font-medium text-blue-700">Developer Tools</span>
                 <div className="flex gap-2">

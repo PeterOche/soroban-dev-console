@@ -3,9 +3,11 @@
 import { Command } from "cmdk";
 import {
   Briefcase,
+  Bookmark,
   FileCode,
   Globe,
   Search,
+  Star,
   Terminal,
   Zap,
   Clock,
@@ -22,7 +24,13 @@ import { useSavedCallsStore } from "@/store/useSavedCallsStore";
 
 // ── FE-030: Global search index types ────────────────────────────────────────
 
-type SearchItemKind = "workspace" | "contract" | "saved-call" | "artifact" | "nav";
+type SearchItemKind =
+  | "workspace"
+  | "contract"
+  | "saved-call"
+  | "bookmark"
+  | "artifact"
+  | "nav";
 
 interface SearchItem {
   id: string;
@@ -61,7 +69,14 @@ export function CommandPalette() {
   const [recentIds, setRecentIds] = useState<string[]>([]);
 
   const router = useRouter();
-  const { workspaces, setActiveWorkspace } = useWorkspaceStore();
+  const {
+    workspaces,
+    setActiveWorkspace,
+    activeWorkspaceId,
+    bookmarkContract,
+    getContractBookmarks,
+    toggleBookmarkFavorite,
+  } = useWorkspaceStore();
   const { currentNetwork, setNetwork } = useNetworkStore();
   const { contracts } = useContractStore();
   const { savedCalls } = useSavedCallsStore();
@@ -114,7 +129,42 @@ export function CommandPalette() {
         kind: "contract",
         label: c.name,
         sublabel: `${c.network} · ${c.id.slice(0, 8)}…`,
-        onSelect: () => router.push(`/contract/${c.id}`),
+        onSelect: () => router.push(`/contracts/${c.id}`),
+      });
+      items.push({
+        id: `contract-bookmark:${c.id}`,
+        kind: "bookmark",
+        label: `Bookmark ${c.name}`,
+        sublabel: `${c.network} · quick action`,
+        onSelect: () => {
+          bookmarkContract(activeWorkspaceId, c.id, c.network, "command-palette");
+          toast.success("Contract bookmarked");
+        },
+      });
+    }
+
+    // Contract bookmarks
+    for (const bookmark of getContractBookmarks(activeWorkspaceId)) {
+      items.push({
+        id: `bookmark:${bookmark.id}`,
+        kind: "bookmark",
+        label: bookmark.contractId,
+        sublabel: `${bookmark.networkId} · ${bookmark.source}${
+          bookmark.favorite ? " · favorite" : ""
+        }`,
+        onSelect: () => router.push(`/contracts/${bookmark.contractId}`),
+      });
+      items.push({
+        id: `bookmark-favorite:${bookmark.id}`,
+        kind: "bookmark",
+        label: bookmark.favorite
+          ? `Unfavorite ${bookmark.contractId.slice(0, 8)}…`
+          : `Favorite ${bookmark.contractId.slice(0, 8)}…`,
+        sublabel: "Toggle bookmark favorite",
+        onSelect: () => {
+          toggleBookmarkFavorite(activeWorkspaceId, bookmark.id);
+          toast.success("Bookmark updated");
+        },
       });
     }
 
@@ -161,7 +211,17 @@ export function CommandPalette() {
     );
 
     return items;
-  }, [workspaces, contracts, savedCalls, router, setActiveWorkspace]);
+  }, [
+    workspaces,
+    contracts,
+    savedCalls,
+    router,
+    setActiveWorkspace,
+    activeWorkspaceId,
+    bookmarkContract,
+    getContractBookmarks,
+    toggleBookmarkFavorite,
+  ]);
 
   // Filter by search query
   const filtered = useMemo(() => {
@@ -184,6 +244,7 @@ export function CommandPalette() {
     workspace: <Briefcase className="mr-2 h-4 w-4 text-muted-foreground" />,
     contract: <FileCode className="mr-2 h-4 w-4 text-muted-foreground" />,
     "saved-call": <Terminal className="mr-2 h-4 w-4 text-muted-foreground" />,
+    bookmark: <Bookmark className="mr-2 h-4 w-4 text-muted-foreground" />,
     artifact: <Box className="mr-2 h-4 w-4 text-muted-foreground" />,
     nav: <Zap className="mr-2 h-4 w-4 text-muted-foreground" />,
   };
@@ -192,6 +253,7 @@ export function CommandPalette() {
     workspace: "Workspaces",
     contract: "Contracts",
     "saved-call": "Saved Calls",
+    bookmark: "Bookmarks",
     artifact: "Artifacts",
     nav: "Navigation",
   };

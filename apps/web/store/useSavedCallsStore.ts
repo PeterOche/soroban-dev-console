@@ -17,9 +17,22 @@ export interface CartItem extends SavedCall {
   cartItemId: string;
 }
 
+export interface OperationPreset {
+  id: string;
+  name: string;
+  contractId: string;
+  fnName: string;
+  args: ContractArg[];
+  network: string;
+  source: "token" | "admin" | "explorer" | "custom";
+  createdAt: number;
+  lastUsedAt?: number;
+}
+
 interface SavedCallsState {
   savedCalls: SavedCall[];
   cartItems: CartItem[];
+  presets: OperationPreset[];
   saveCall: (call: Omit<SavedCall, "id" | "createdAt">) => SavedCall;
   removeCall: (id: string) => void;
   getCallsForContract: (contractId: string) => SavedCall[];
@@ -30,6 +43,14 @@ interface SavedCallsState {
   getCallsForWorkspace: (workspaceId: string) => SavedCall[];
   assignCallToWorkspace: (callId: string, workspaceId: string) => void;
   unassignCallFromWorkspace: (callId: string) => void;
+  /** FE-056: persist reusable operation presets */
+  savePreset: (preset: Omit<OperationPreset, "id" | "createdAt" | "lastUsedAt">) => OperationPreset;
+  removePreset: (presetId: string) => void;
+  getPresetsForContract: (contractId: string) => OperationPreset[];
+  /** FE-056: apply a preset by creating a saved call and adding it to cart */
+  applyPresetToCart: (presetId: string, options?: { workspaceId?: string }) => SavedCall | null;
+  /** FE-056: recover stale preset by switching network context */
+  repairPresetNetwork: (presetId: string, network: string) => void;
 }
 
 export const useSavedCallsStore = create<SavedCallsState>()(
@@ -37,6 +58,7 @@ export const useSavedCallsStore = create<SavedCallsState>()(
     (set, get) => ({
       savedCalls: [],
       cartItems: [],
+      presets: [],
 
       saveCall: (call) => {
         const savedCall: SavedCall = {
@@ -96,6 +118,57 @@ export const useSavedCallsStore = create<SavedCallsState>()(
         set((state) => ({
           savedCalls: state.savedCalls.map((c) =>
             c.id === callId ? { ...c, workspaceId: undefined } : c,
+          ),
+        })),
+
+      savePreset: (preset) => {
+        const next: OperationPreset = {
+          ...preset,
+          id: crypto.randomUUID(),
+          createdAt: Date.now(),
+        };
+        set((state) => ({ presets: [next, ...state.presets] }));
+        return next;
+      },
+
+      removePreset: (presetId) =>
+        set((state) => ({
+          presets: state.presets.filter((preset) => preset.id !== presetId),
+        })),
+
+      getPresetsForContract: (contractId) =>
+        get().presets.filter((preset) => preset.contractId === contractId),
+
+      applyPresetToCart: (presetId, options) => {
+        const preset = get().presets.find((entry) => entry.id === presetId);
+        if (!preset) return null;
+
+        const savedCall: SavedCall = {
+          id: crypto.randomUUID(),
+          name: preset.name,
+          contractId: preset.contractId,
+          fnName: preset.fnName,
+          args: preset.args,
+          network: preset.network,
+          createdAt: Date.now(),
+          workspaceId: options?.workspaceId,
+        };
+
+        set((state) => ({
+          savedCalls: [savedCall, ...state.savedCalls],
+          cartItems: [...state.cartItems, { ...savedCall, cartItemId: crypto.randomUUID() }],
+          presets: state.presets.map((entry) =>
+            entry.id === presetId ? { ...entry, lastUsedAt: Date.now() } : entry,
+          ),
+        }));
+
+        return savedCall;
+      },
+
+      repairPresetNetwork: (presetId, network) =>
+        set((state) => ({
+          presets: state.presets.map((preset) =>
+            preset.id === presetId ? { ...preset, network } : preset,
           ),
         })),
     }),

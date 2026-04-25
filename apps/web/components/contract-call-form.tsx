@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   Eye,
   AlertCircle,
+  Download,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useWallet } from "@/store/useWallet";
@@ -68,6 +69,8 @@ import {
 } from "@devconsole/ui";
 import { ActionGuard } from "./action-guard";
 import { toast } from "sonner";
+import { useResultBundlesStore } from "@/store/useResultBundlesStore";
+import { exportResultBundle } from "@/lib/result-bundles";
 
 interface ContractCallFormProps {
   contractId: string;
@@ -151,7 +154,8 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
   const [result, setResult] = useState<string | null>(null);
   const [simulation, setSimulation] =
     useState<NormalizedSimulationResult | null>(null);
-  const { saveCall } = useSavedCallsStore();
+  const { saveCall, savePreset } = useSavedCallsStore();
+  const { addBundle } = useResultBundlesStore();
   const { activeWorkspaceId, linkSavedCall } = useWorkspaceStore();
   const [isSaveOpen, setIsSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
@@ -272,6 +276,20 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
       const normalized = normalizeSimulationResult(sim);
       setSimulation(normalized);
 
+      addBundle({
+        kind: "single-call",
+        title: `Simulation · ${fnName || "unknown"}`,
+        networkId: network.id,
+        workspaceId: activeWorkspaceId,
+        contractId,
+        payload: {
+          mode: "simulate",
+          fnName,
+          args,
+          simulation: normalized,
+        },
+      });
+
       if (normalized.ok) {
         setResult("Simulation succeeded.");
         toast.success(`Simulation Success!`);
@@ -341,6 +359,22 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
         ),
       );
 
+      addBundle({
+        kind: "single-call",
+        title: `Transaction · ${fnName || "unknown"}`,
+        networkId: network.id,
+        workspaceId: activeWorkspaceId,
+        contractId,
+        txHash: sendRes.hash,
+        payload: {
+          mode: "submit",
+          fnName,
+          args,
+          sendStatus: sendRes.status,
+          simulation: normalizeSimulationResult(sim),
+        },
+      });
+
       if (sendRes.status !== "PENDING") {
         throw new Error(`Submission failed: ${sendRes.status}`);
       }
@@ -396,6 +430,40 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
     const newArgs = call.args.map((a) => ({ ...a, id: crypto.randomUUID() }));
     setArgs(newArgs);
     toast.info(`Loaded: ${call.name}`);
+  };
+
+  const handleSavePreset = () => {
+    if (!fnName) return;
+    const network = getActiveNetworkConfig();
+    savePreset({
+      name: saveName.trim() || `${fnName} preset`,
+      contractId,
+      fnName,
+      args,
+      network: network.id,
+      source: "custom",
+    });
+    toast.success("Operation preset saved");
+  };
+
+  const handleExportBundle = () => {
+    const network = getActiveNetworkConfig();
+    const bundle = addBundle({
+      kind: "single-call",
+      title: `Export · ${fnName || "contract-call"}`,
+      networkId: network.id,
+      workspaceId: activeWorkspaceId,
+      contractId,
+      payload: {
+        mode: "manual-export",
+        fnName,
+        args,
+        result,
+        simulation,
+      },
+    });
+    exportResultBundle(bundle);
+    toast.success("Result bundle exported");
   };
 
   return (
@@ -467,16 +535,27 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
 
         <Dialog open={isSaveOpen} onOpenChange={setIsSaveOpen}>
           <ActionGuard action="submit">
-            <DialogTrigger asChild>
+            <div className="flex gap-2">
+              <DialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  title="Save Interaction"
+                  disabled={!fnName}
+                >
+                  <Save className="h-4 w-4" />
+                </Button>
+              </DialogTrigger>
               <Button
                 variant="outline"
-                size="icon"
-                title="Save Interaction"
+                size="sm"
+                title="Save reusable operation preset"
                 disabled={!fnName}
+                onClick={handleSavePreset}
               >
-                <Save className="h-4 w-4" />
+                Save Preset
               </Button>
-            </DialogTrigger>
+            </div>
           </ActionGuard>
           <DialogContent>
             <DialogHeader>
@@ -777,14 +856,24 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
         </div>
         {result && (
           <ActionGuard action="submit">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handlePin}
-              title="Pin this result for comparison"
-            >
-              <Bookmark className="mr-1 h-3 w-3" /> Pin Result
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePin}
+                title="Pin this result for comparison"
+              >
+                <Bookmark className="mr-1 h-3 w-3" /> Pin Result
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportBundle}
+                title="Export structured result bundle"
+              >
+                <Download className="mr-1 h-3 w-3" /> Export Bundle
+              </Button>
+            </div>
           </ActionGuard>
         )}
 

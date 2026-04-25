@@ -55,6 +55,9 @@ import {
 import { useNetworkStore } from "@/store/useNetworkStore";
 import { STORE_SCHEMA_VERSION } from "@/store/schema-version";
 import type { ShareSummary } from "@devconsole/api-contracts";
+import { useResultBundlesStore } from "@/store/useResultBundlesStore";
+import { exportAllResultBundles, exportResultBundle } from "@/lib/result-bundles";
+import { useWasmStore } from "@/store/useWasmStore";
 
 // The keys defined in your Zustand 'persist' middleware options
 const STORAGE_KEYS = {
@@ -321,7 +324,10 @@ export function DataManagement() {
   const { getActiveWorkspace, cloudId } = useWorkspaceStore();
   const { contracts } = useContractStore();
   const { savedCalls } = useSavedCallsStore();
+  const { bundles, removeBundle, clearBundles } = useResultBundlesStore();
+  const { wasms } = useWasmStore();
   const { getActiveNetworkConfig } = useNetworkStore();
+  const deployOutcomes = wasms.filter((entry) => Boolean(entry.deployedContractId));
 
   const handleExport = () => {
     try {
@@ -653,6 +659,132 @@ export function DataManagement() {
               )}
               Generate Bundle
             </Button>
+          </div>
+
+          {/* FE-055: Result bundle export */}
+          <div className="rounded-md border p-3 space-y-2">
+            <div className="flex items-start gap-2">
+              <Package className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="flex-1">
+                <p className="text-sm font-medium">Result Bundles</p>
+                <p className="text-xs text-muted-foreground">
+                  Export simulation and transaction outcomes from single-call,
+                  batch, and deployment workflows.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={bundles.length === 0}
+                onClick={() => {
+                  exportAllResultBundles(bundles);
+                  toast.success("All result bundles exported");
+                }}
+              >
+                <Download className="mr-2 h-3 w-3" />
+                Export All Bundles ({bundles.length})
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={bundles.length === 0}
+                onClick={() => {
+                  clearBundles();
+                  toast.success("Result bundles cleared");
+                }}
+              >
+                <Trash2 className="mr-2 h-3 w-3" />
+                Clear Bundles
+              </Button>
+            </div>
+
+            {bundles.length > 0 && (
+              <div className="space-y-2">
+                {bundles.slice(0, 8).map((bundle) => (
+                  <div
+                    key={bundle.id}
+                    className="flex items-center justify-between rounded-md border px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{bundle.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {bundle.kind} · {bundle.networkId} ·{" "}
+                        {new Date(bundle.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => exportResultBundle(bundle)}
+                        aria-label="Export result bundle"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeBundle(bundle.id)}
+                        aria-label="Delete result bundle"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {deployOutcomes.length > 0 && (
+              <div className="space-y-2 pt-1">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Deployment Outcomes
+                </p>
+                {deployOutcomes.slice(0, 5).map((entry) => (
+                  <div
+                    key={`${entry.hash}-${entry.deployedContractId}`}
+                    className="flex items-center justify-between rounded-md border px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{entry.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {entry.network} · {entry.deployedContractId}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const bundle = {
+                          id: crypto.randomUUID(),
+                          kind: "deploy" as const,
+                          title: `Deploy outcome · ${entry.name}`,
+                          createdAt: entry.deployedAt ?? Date.now(),
+                          networkId: entry.network,
+                          contractId: entry.deployedContractId,
+                          payload: {
+                            wasmHash: entry.hash,
+                            version: entry.version,
+                            installedAt: entry.installedAt,
+                            deployedAt: entry.deployedAt,
+                            workspaceId: entry.workspaceId,
+                            provenance: entry.provenance,
+                          },
+                        };
+                        exportResultBundle(bundle);
+                        toast.success("Deploy outcome bundle exported");
+                      }}
+                    >
+                      <Download className="mr-2 h-3 w-3" />
+                      Export
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* FE-037: Recovery Tooling */}
