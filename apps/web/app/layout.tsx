@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { SidebarProvider, SidebarInset } from "@devconsole/ui";
+import { SidebarProvider, SidebarInset, TooltipProvider } from "@devconsole/ui";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SiteHeader } from "@/components/site-header";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -38,14 +38,16 @@ export default async function RootLayout({
           enableSystem
         >
           <SidebarProvider>
-            <AppSidebar />
-            <SidebarInset>
-              <SiteHeader />
-              <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-                {children}
-                <CommandPalette />
-              </div>
-            </SidebarInset>
+            <TooltipProvider>
+              <AppSidebar />
+              <SidebarInset>
+                <SiteHeader />
+                <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
+                  {children}
+                  <CommandPalette />
+                </div>
+              </SidebarInset>
+            </TooltipProvider>
           </SidebarProvider>
         </ThemeProvider>
 

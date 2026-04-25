@@ -220,7 +220,18 @@ When reviewing PRs, check for:
 
 ## Reporting Issues
 
-When reporting bugs, include:
+When reporting bugs or proposing changes, please use the provided **Issue Templates**:
+- **Audit Regression**: For reporting functional regressions found during testing.
+- **Cleanup-only Work**: For proposing non-functional refactoring or debt reduction.
+- **Backlog Gap / Follow-up**: For tracking missing features or audit follow-ups.
+
+Templates include sections for:
+- **Context**: Background and Track ID (e.g., [FE-001]).
+- **Expected Outcome**: Clear definition of "done".
+- **Implementation Notes**: Technical approach or blockers.
+- **Acceptance Criteria**: Verification checklist.
+
+If a template doesn't fit, you can still open a regular issue with:
 - Clear description of the issue
 - Steps to reproduce
 - Expected vs actual behavior

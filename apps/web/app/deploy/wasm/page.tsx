@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState, type ChangeEvent } from "react";
+import { usePathname } from "next/navigation";
 import { useWallet } from "@/store/useWallet";
 import { useNetworkStore } from "@/store/useNetworkStore";
 import { useWasmStore, type WasmEntry, type ProvenanceNode, type DeployPhase } from "@/store/useWasmStore";
@@ -30,6 +31,9 @@ import {
   XCircle,
   Circle,
   RotateCcw,
+  AlertCircle,
+  FlaskConical,
+  Eye,
 } from "lucide-react";
 import { Button } from "@devconsole/ui";
 import {
@@ -58,6 +62,7 @@ import {
 } from "@devconsole/soroban-utils";
 import { registerSource } from "@/lib/source-registry";
 import { InstantiateWizard } from "@/components/instantiate-wizard";
+import { ActionGuard } from "@/components/action-guard";
 
 // ── Provenance panel ──────────────────────────────────────────────────────────
 
@@ -231,6 +236,7 @@ function DeployPipelinePanel() {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function WasmRegistryPage() {
+  const pathname = usePathname();
   const { isConnected, address } = useWallet();
   const { getActiveNetworkConfig } = useNetworkStore();
   const { wasms, addWasm, removeWasm, associateContract, addProvenanceNode, advancePipeline, resetPipeline } = useWasmStore();
@@ -419,6 +425,42 @@ export default function WasmRegistryPage() {
       {/* FE-048: Guided deploy pipeline status */}
       <DeployPipelinePanel />
 
+      {/* FE-064: Action context banners */}
+      {pathname?.startsWith("/share/") && (
+        <div className="flex items-center gap-2 rounded-md border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-sm text-blue-700">
+          <Eye className="h-4 w-4" />
+          <span>Read-only shared workspace — execution and editing are disabled.</span>
+        </div>
+      )}
+      {isSandboxMode && (
+        <div className="flex items-center justify-between rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm">
+          <div className="flex items-center gap-2 text-amber-700">
+            <FlaskConical className="h-4 w-4" />
+            <span>Sandbox mode — simulation only, no wallet required</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-amber-700 hover:text-amber-900"
+            onClick={resetPipeline}
+          >
+            Reset Pipeline
+          </Button>
+        </div>
+      )}
+      {!isConnected && !isSandboxMode && !pathname?.startsWith("/share/") && (
+        <div className="flex items-center justify-between rounded-md border border-dashed px-4 py-2 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            <span>No wallet connected — connect or enter sandbox to enable interactions</span>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => useWallet.getState().enterSandbox()}>
+            <FlaskConical className="mr-1 h-3 w-3" />
+            Enter Sandbox
+          </Button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <Card className="h-fit lg:col-span-1">
           <CardHeader>
@@ -440,18 +482,20 @@ export default function WasmRegistryPage() {
               />
             </div>
 
-            <Button
-              className="w-full"
-              onClick={handleInstall}
-              disabled={!file || !isConnected || isUploading}
-            >
-              {isUploading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <UploadCloud className="mr-2 h-4 w-4" />
-              )}
-              Install WASM
-            </Button>
+            <ActionGuard action="submit">
+              <Button
+                className="w-full"
+                onClick={handleInstall}
+                disabled={!file || isUploading}
+              >
+                {isUploading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <UploadCloud className="mr-2 h-4 w-4" />
+                )}
+                Install WASM
+              </Button>
+            </ActionGuard>
           </CardContent>
         </Card>
 
@@ -517,22 +561,24 @@ export default function WasmRegistryPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeploy(entry.hash);
-                              }}
-                              disabled={!!deployingHash}
-                            >
-                              {deployingHash === entry.hash ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <Play className="mr-1 h-3 w-3" />
-                              )}
-                              Deploy
-                            </Button>
+                            <ActionGuard action="deploy">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeploy(entry.hash);
+                                }}
+                                disabled={!!deployingHash}
+                              >
+                                {deployingHash === entry.hash ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Play className="mr-1 h-3 w-3" />
+                                )}
+                                Deploy
+                              </Button>
+                            </ActionGuard>
                             <Button
                               size="icon"
                               variant="ghost"

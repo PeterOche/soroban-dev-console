@@ -12,13 +12,16 @@ import {
   Send,
   SlidersHorizontal,
   Terminal,
+  Eye,
 } from "lucide-react";
 import { Server as SorobanServer } from "@stellar/stellar-sdk/rpc";
 import { useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { toast } from "sonner";
 import { orchestrateTx, simulateTx, type TxStatus } from "@/lib/tx-orchestrator";
 
 import { MultiOpCart } from "@/components/multi-op-cart";
+import { ActionGuard } from "@/components/action-guard";
 import { convertToScVal, type NormalizedSimulationResult } from "@devconsole/soroban-utils";
 import { useNetworkStore } from "@/store/useNetworkStore";
 import { SavedCall, useSavedCallsStore } from "@/store/useSavedCallsStore";
@@ -82,6 +85,7 @@ function validateCartItems(
 }
 
 export default function TxBuilderPage() {
+  const pathname = usePathname();
   const { savedCalls, cartItems, addToCart, removeFromCart, moveCartItem, clearCart } =
     useSavedCallsStore();
   const { getActiveNetworkConfig, currentNetwork } = useNetworkStore();
@@ -308,21 +312,35 @@ export default function TxBuilderPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* FE-043: sandbox banner */}
+          {/* FE-064: Action context banners */}
+          {pathname?.startsWith("/share/") && (
+            <div className="flex items-center gap-2 rounded-md border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-sm text-blue-700">
+              <Eye className="h-4 w-4" />
+              <span>Read-only shared workspace — execution and editing are disabled.</span>
+            </div>
+          )}
           {isSandboxMode && (
-            <div className="flex items-center justify-between rounded-md border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-sm">
-              <div className="flex items-center gap-2 text-blue-700">
+            <div className="flex items-center justify-between rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm">
+              <div className="flex items-center gap-2 text-amber-700">
                 <FlaskConical className="h-4 w-4" />
                 <span>Sandbox mode — simulation only</span>
               </div>
-              <Button variant="ghost" size="sm" className="text-blue-700" onClick={exitSandbox}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-amber-700 hover:text-amber-900"
+                onClick={exitSandbox}
+              >
                 Exit
               </Button>
             </div>
           )}
-          {!isConnected && !isSandboxMode && (
+          {!isConnected && !isSandboxMode && !pathname?.startsWith("/share/") && (
             <div className="flex items-center justify-between rounded-md border border-dashed px-4 py-2 text-sm text-muted-foreground">
-              <span>No wallet — simulate in sandbox mode</span>
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                <span>No wallet connected — connect or enter sandbox to enable interactions</span>
+              </div>
               <Button variant="outline" size="sm" onClick={enterSandbox}>
                 <FlaskConical className="mr-1 h-3 w-3" />
                 Enter Sandbox
@@ -414,30 +432,34 @@ export default function TxBuilderPage() {
           )}
 
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={handleSimulate}
-              disabled={isLoading || cartItems.length < 2}
-            >
-              {isLoading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Terminal className="mr-2 h-4 w-4" />
-              )}
-              {isSandboxMode ? "Simulate Batch (Sandbox)" : "Simulate Batch"}
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={isLoading || cartItems.length < 2 || !isConnected || isSandboxMode}
-              title={isSandboxMode ? "Connect a wallet to submit" : undefined}
-            >
-              {isLoading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="mr-2 h-4 w-4" />
-              )}
-              Sign &amp; Submit
-            </Button>
+            <ActionGuard action="simulate">
+              <Button
+                variant="outline"
+                onClick={handleSimulate}
+                disabled={isLoading || cartItems.length < 2}
+              >
+                {isLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Terminal className="mr-2 h-4 w-4" />
+                )}
+                {isSandboxMode ? "Simulate Batch (Sandbox)" : "Simulate Batch"}
+              </Button>
+            </ActionGuard>
+
+            <ActionGuard action="submit">
+              <Button
+                onClick={handleSubmit}
+                disabled={isLoading || cartItems.length < 2}
+              >
+                {isLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-2 h-4 w-4" />
+                )}
+                Sign &amp; Submit
+              </Button>
+            </ActionGuard>
           </div>
         </CardContent>
       </Card>

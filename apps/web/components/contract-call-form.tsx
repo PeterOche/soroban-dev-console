@@ -18,7 +18,10 @@ import {
   Bookmark,
   FlaskConical,
   SlidersHorizontal,
+  Eye,
+  AlertCircle,
 } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useWallet } from "@/store/useWallet";
 import { useNetworkStore } from "@/store/useNetworkStore";
 import { useSavedCallsStore, SavedCall } from "@/store/useSavedCallsStore";
@@ -63,6 +66,7 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@devconsole/ui";
+import { ActionGuard } from "./action-guard";
 import { toast } from "sonner";
 
 interface ContractCallFormProps {
@@ -136,6 +140,7 @@ function toContractArg(field: NonNullable<NormalizedContractSpec["functions"][nu
 }
 
 export function ContractCallForm({ contractId }: ContractCallFormProps) {
+  const pathname = usePathname();
   const genId = () => Math.random().toString(36).substring(2, 9);
   const { isConnected, address, isSandboxMode, enterSandbox, exitSandbox } = useWallet();
   const { getActiveNetworkConfig } = useNetworkStore();
@@ -401,26 +406,35 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
         <SavedCallsSheet contractId={contractId} onSelect={handleLoad} />
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* FE-043: sandbox mode banner */}
+        {/* FE-064: Action context banners */}
+        {pathname?.startsWith("/share/") && (
+          <div className="flex items-center gap-2 rounded-md border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-sm text-blue-700">
+            <Eye className="h-4 w-4" />
+            <span>Read-only shared workspace — execution and editing are disabled.</span>
+          </div>
+        )}
         {isSandboxMode && (
-          <div className="flex items-center justify-between rounded-md border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-sm">
-            <div className="flex items-center gap-2 text-blue-700">
+          <div className="flex items-center justify-between rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm">
+            <div className="flex items-center gap-2 text-amber-700">
               <FlaskConical className="h-4 w-4" />
               <span>Sandbox mode — simulation only, no wallet required</span>
             </div>
             <Button
               variant="ghost"
               size="sm"
-              className="text-blue-700 hover:text-blue-900"
+              className="text-amber-700 hover:text-amber-900"
               onClick={exitSandbox}
             >
               Exit
             </Button>
           </div>
         )}
-        {!isConnected && !isSandboxMode && (
+        {!isConnected && !isSandboxMode && !pathname?.startsWith("/share/") && (
           <div className="flex items-center justify-between rounded-md border border-dashed px-4 py-2 text-sm text-muted-foreground">
-            <span>No wallet connected — simulation available in sandbox mode</span>
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4" />
+              <span>No wallet connected — connect or enter sandbox to enable interactions</span>
+            </div>
             <Button variant="outline" size="sm" onClick={enterSandbox}>
               <FlaskConical className="mr-1 h-3 w-3" />
               Enter Sandbox
@@ -452,16 +466,18 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
         </div>
 
         <Dialog open={isSaveOpen} onOpenChange={setIsSaveOpen}>
-          <DialogTrigger asChild>
-            <Button
-              variant="outline"
-              size="icon"
-              title="Save Interaction"
-              disabled={!fnName}
-            >
-              <Save className="h-4 w-4" />
-            </Button>
-          </DialogTrigger>
+          <ActionGuard action="submit">
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                title="Save Interaction"
+                disabled={!fnName}
+              >
+                <Save className="h-4 w-4" />
+              </Button>
+            </DialogTrigger>
+          </ActionGuard>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Save Interaction</DialogTitle>
@@ -728,43 +744,48 @@ export function ContractCallForm({ contractId }: ContractCallFormProps) {
         )}
 
         <div className="flex gap-3 pt-2">
-          <Button
-            variant="secondary"
-            className="flex-1"
-            onClick={handleSimulate}
-            disabled={isLoading || !fnName}
-          >
-            {isLoading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Terminal className="mr-2 h-4 w-4" />
-            )}
-            {isSandboxMode ? "Simulate (Sandbox)" : "Simulate"}
-          </Button>
+          <ActionGuard action="simulate" className="flex-1">
+            <Button
+              variant="secondary"
+              className="w-full"
+              onClick={handleSimulate}
+              disabled={isLoading || !fnName}
+            >
+              {isLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Terminal className="mr-2 h-4 w-4" />
+              )}
+              {isSandboxMode ? "Simulate (Sandbox)" : "Simulate"}
+            </Button>
+          </ActionGuard>
 
-          <Button
-            className="flex-1"
-            onClick={handleSend}
-            disabled={isLoading || !fnName || !isConnected || isSandboxMode}
-            title={isSandboxMode ? "Connect a wallet to submit transactions" : undefined}
-          >
-            {isLoading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="mr-2 h-4 w-4" />
-            )}
-            Send Transaction
-          </Button>
+          <ActionGuard action="submit" className="flex-1">
+            <Button
+              className="w-full"
+              onClick={handleSend}
+              disabled={isLoading || !fnName}
+            >
+              {isLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="mr-2 h-4 w-4" />
+              )}
+              Send Transaction
+            </Button>
+          </ActionGuard>
         </div>
         {result && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePin}
-            title="Pin this result for comparison"
-          >
-            <Bookmark className="mr-1 h-3 w-3" /> Pin Result
-          </Button>
+          <ActionGuard action="submit">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePin}
+              title="Pin this result for comparison"
+            >
+              <Bookmark className="mr-1 h-3 w-3" /> Pin Result
+            </Button>
+          </ActionGuard>
         )}
 
         {pinnedVariants.length >= 2 && (
