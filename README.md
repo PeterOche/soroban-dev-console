@@ -198,7 +198,7 @@ npx prisma migrate reset
 DEVOPS-025: The project uses a centralized source of truth for all runtime ports and local URLs to prevent drift.
 
 - **Canonical Source**: [packages/api-contracts/src/runtime-defaults.ts](file:///Users/mustang/Desktop/soroban-dev-console/packages/api-contracts/src/runtime-defaults.ts)
-- **Validation**: Run `npm run check-drift` to verify that all documentation and `.env.example` files are aligned with these defaults.
+- **Validation**: Run `npm run check-drift` to verify that all documentation and `.env.example` files are aligned with these defaults. Run `npm run check-integrity` to verify lockfile and workspace dependency consistency.
 
 | Service | Default Port | Default Local URL |
 |---------|--------------|-------------------|

@@ -44,6 +44,9 @@ jobs:
               - 'docs/architecture.md'
               - 'apps/api/.env.example'
               - 'apps/web/.env.example'
+              - 'package.json'
+              - 'package-lock.json'
+              - '**/package.json'
 
   web:
     name: Web
@@ -254,3 +257,6 @@ jobs:
 
       - name: Check runtime drift
         run: npm run check-drift
+
+      - name: Check dependency integrity
+        run: npm run check-integrity

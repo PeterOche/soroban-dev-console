@@ -13,6 +13,7 @@
     "typecheck": "turbo run typecheck --filter=web --filter=@devconsole/ui --filter=@devconsole/soroban-utils",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-drift": "tsx scripts/check-runtime-drift.ts",
+    "check-integrity": "tsx scripts/check-dependency-integrity.ts",
     "deploy:contracts": "bash scripts/deploy-test-suite.sh"
   },
   "devDependencies": {
